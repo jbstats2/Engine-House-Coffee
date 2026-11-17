@@ -258,6 +258,12 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
     res.json({ result, member: { name: updated.name, memberCode: updated.member_code }, card: cardSummary(db, updated) });
   });
 
+  // Health check for the hosting platform: also confirms the database answers.
+  app.get('/healthz', (_req, res) => {
+    db.prepare('SELECT 1').get();
+    res.set('Cache-Control', 'no-store').json({ ok: true });
+  });
+
   // ---- Static PWA ---------------------------------------------------------
 
   const pub = path.join(__dirname, '..', 'public');

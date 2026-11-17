@@ -1,0 +1,35 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# In Render: New → Blueprint → pick this repo. You'll be asked for the
+# values marked `sync: false`.
+services:
+  - type: web
+    name: engine-house-coffee
+    runtime: node
+    # A persistent disk (for the SQLite database) needs a paid instance.
+    # On the free plan the database would be wiped on every deploy/restart.
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22.13.1"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: SHOP_TIMEZONE
+        value: America/New_York
+      - key: DB_FILE
+        value: /var/data/loyalty.db
+      - key: STAFF_EMAIL
+        sync: false
+      - key: STAFF_PASSWORD
+        sync: false
+      - key: STAFF_NAME
+        sync: false
+    disk:
+      name: loyalty-data
+      mountPath: /var/data
+      sizeGB: 1

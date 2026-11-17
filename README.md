@@ -37,6 +37,29 @@ npm test
 
 ## Deploying
 
+### On Render (recommended)
+
+This repo includes a `render.yaml` blueprint. It sets up the web service, HTTPS and a persistent disk for the database.
+
+1. Sign in at [render.com](https://render.com) with GitHub.
+2. Click **New → Blueprint** and choose this repository.
+3. Fill in the three values it asks for:
+   - `STAFF_EMAIL`: your barista/owner login.
+   - `STAFF_PASSWORD`: at least 10 characters, with letters and numbers.
+   - `STAFF_NAME`: the name shown on the barista screen.
+4. Click **Apply**. A few minutes later the app is live at `https://engine-house-coffee.onrender.com` (or similar).
+5. Sign in with the staff email to reach the barista station. Customers sign up at the same address and can tap **Install app**.
+
+The staff account is created on first start only. Later restarts never change it, so you can change its password in the app afterwards. To add more baristas, have them sign up as customers, then use Render's **Shell** tab to run `npm run create-staff -- --email them@example.com`.
+
+The blueprint uses Render's paid **Starter** instance because the database needs a persistent disk. On a free instance, all accounts and stamps would be erased whenever the app restarts.
+
+To use your own domain (e.g. `rewards.enginehousecoffee.com`), go to **Settings → Custom Domains** in Render.
+
+### Anywhere else
+
+Any host that runs Node 22.13+ works if it gives the app a persistent disk for `DB_FILE` and serves it over HTTPS.
+
 | Env var       | Purpose                                                             | Default              |
 |---------------|---------------------------------------------------------------------|----------------------|
 | `PORT`        | HTTP port                                                           | `3000`               |
@@ -44,6 +67,7 @@ npm test
 | `NODE_ENV`    | Set to `production` to turn on `Secure` cookies and HSTS            | —                    |
 | `TRUST_PROXY` | Set to `1` behind a load balancer or proxy that handles HTTPS       | —                    |
 | `SHOP_TIMEZONE` | Time zone used to decide when a new day starts (at midnight) | `America/New_York` (Eastern) |
+| `STAFF_EMAIL` / `STAFF_PASSWORD` / `STAFF_NAME` | Creates the first staff account on startup if it doesn't exist | — |
 
 Serve it over **HTTPS** in production. Browsers only allow installing the app, and only send secure cookies, over HTTPS.
 
