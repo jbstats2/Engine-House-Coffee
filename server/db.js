@@ -44,11 +44,26 @@ function openDb(file) {
     );
     CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id, created_at);
 
+    -- Stamps added by an admin outside the once-a-day rule (e.g. a missed day).
+    CREATE TABLE IF NOT EXISTS adjustments (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      admin_id    INTEGER REFERENCES users(id),
+      stamps      INTEGER NOT NULL,
+      note        TEXT,
+      created_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_adj_user ON adjustments(user_id, created_at);
+
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
   `);
+
+  // Upgrade databases created before admin accounts existed.
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!userCols.includes('is_admin')) db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
 
   // Upgrade databases created before the one-stamp-per-day rule.
   const cols = db.prepare('PRAGMA table_info(transactions)').all().map((c) => c.name);

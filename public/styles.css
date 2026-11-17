@@ -180,6 +180,12 @@ details summary { cursor: pointer; font-weight: 600; color: var(--roast); }
 }
 .sheet ol { padding-left: 20px; margin: 8px 0 12px; }
 
+/* ---- Admin stamp adjustment ---- */
+.adjust { margin-top: 18px; padding-top: 14px; border-top: 1px dashed #e2d5c5; }
+.adjust h3 { margin: 0; font-size: 1rem; color: var(--roast); }
+.adjust-row { display: grid; grid-template-columns: 90px 1fr; gap: 10px; align-items: end; }
+.stamp-extra { margin: 8px 0 0; text-align: center; font-size: .85rem; color: var(--crema); font-weight: 600; }
+
 /* ---- Self-scan ---- */
 .btn-big { padding: 15px 18px; font-size: 1.05rem; margin-top: 14px; }
 .greeting .scanner { margin-top: 12px; }

@@ -8,7 +8,7 @@ const QRCode = require('qrcode');
 
 const config = require('./config');
 const sec = require('./security');
-const { recordVisit, cardSummary } = require('./loyalty');
+const { recordVisit, addStamps, cardSummary } = require('./loyalty');
 const registerQr = require('./registerQr');
 
 function parseCookies(header) {
@@ -26,7 +26,7 @@ function httpError(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', trustProxy = false } = {}) {
+function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', trustProxy = false, authRateLimit = 20 } = {}) {
   const app = express();
   app.disable('x-powered-by');
   if (trustProxy) app.set('trust proxy', trustProxy);
@@ -98,17 +98,20 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
   const requireUser = (req, _res, next) => (req.user ? next() : next(httpError(401, 'Please sign in.')));
   const requireStaff = (req, _res, next) =>
     req.user?.role === 'staff' ? next() : next(httpError(req.user ? 403 : 401, 'Staff only.'));
+  const requireAdmin = (req, _res, next) =>
+    req.user?.role === 'staff' && req.user.is_admin ? next() : next(httpError(req.user ? 403 : 401, 'Admin only.'));
 
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 20,
+    limit: authRateLimit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     message: { error: 'Too many attempts. Please wait a few minutes and try again.' },
   });
 
   const publicUser = (u) => ({
-    name: u.name, email: u.email, role: u.role, memberCode: u.member_code, memberSince: u.created_at,
+    name: u.name, email: u.email, role: u.role, isAdmin: u.role === 'staff' && !!u.is_admin,
+    memberCode: u.member_code, memberSince: u.created_at,
   });
 
   // ---- Auth ---------------------------------------------------------------
@@ -202,12 +205,27 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
   });
 
   const historyRows = (userId, limit) => db.prepare(`
-    SELECT kind, created_at FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT ?
-  `).all(userId, limit);
+    SELECT kind, created_at, NULL AS stamps, NULL AS note FROM transactions WHERE user_id = ?
+    UNION ALL
+    SELECT 'adjustment', created_at, stamps, note FROM adjustments WHERE user_id = ?
+    ORDER BY created_at DESC LIMIT ?
+  `).all(userId, userId, limit);
+
+  const historyLabel = (r) => {
+    if (r.kind === 'free_coffee') return 'Free coffee redeemed';
+    if (r.kind === 'adjustment') {
+      return `${r.stamps} stamp${r.stamps === 1 ? '' : 's'} added by Engine House${r.note ? ` (${r.note})` : ''}`;
+    }
+    return 'Stamp earned (+1 point)';
+  };
 
   app.get('/api/me/history', requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ history: historyRows(req.user.id, 50).map((r) => ({ kind: r.kind, at: r.created_at })) });
+    res.json({
+      history: historyRows(req.user.id, 50).map((r) => ({
+        kind: r.kind, at: r.created_at, ...(r.kind === 'adjustment' ? { stamps: r.stamps, note: r.note } : {}),
+      })),
+    });
   });
 
   app.get('/api/me/history.csv', requireUser, (req, res) => {
@@ -222,10 +240,7 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
       ['Free coffees redeemed', u.free_redeemed],
       [],
       ['Date (UTC)', 'Activity'],
-      ...historyRows(u.id, 100000).map((r) => [
-        new Date(r.created_at).toISOString(),
-        r.kind === 'free_coffee' ? 'Free coffee redeemed' : 'Stamp earned (+1 point)',
-      ]),
+      ...historyRows(u.id, 100000).map((r) => [new Date(r.created_at).toISOString(), historyLabel(r)]),
     ];
     const csvCell = (v) => {
       let s = String(v);
@@ -258,6 +273,17 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
   });
 
   // ---- Staff --------------------------------------------------------------
+
+  // Admin: add any number of stamps (e.g. a missed day), ignoring the daily limit.
+  app.post('/api/admin/members/:code/stamps', requireAdmin, (req, res) => {
+    const m = findMember(req.params.code);
+    const count = Number(req.body?.count);
+    if (!Number.isInteger(count) || count < 1 || count > 100) throw httpError(400, 'Enter a number of stamps from 1 to 100.');
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 120) : '';
+    addStamps(db, { userId: m.id, adminId: req.user.id, count, note });
+    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
+    res.json({ added: count, member: { name: updated.name, memberCode: updated.member_code }, card: cardSummary(db, updated) });
+  });
 
   const registerUrl = (req) => `${req.protocol}://${req.get('host')}/s/${registerQr.getStampToken(db)}`;
 

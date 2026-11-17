@@ -192,6 +192,21 @@
         <button class="btn btn-primary btn-block" type="submit">Add today's stamp</button>
         <p class="form-error" hidden></p>
       </form>
+
+      <form id="adjust-form" class="form adjust" novalidate hidden>
+        <h3>Admin: add stamps</h3>
+        <p class="muted small">For a missed day or to make something right. Ignores the once-a-day limit. Stamps past a full card carry over to their next card.</p>
+        <div class="adjust-row">
+          <label>Stamps
+            <input name="count" type="number" min="1" max="100" value="1" inputmode="numeric" required>
+          </label>
+          <label class="grow">Note <small class="muted">(optional, customer sees it)</small>
+            <input name="note" maxlength="120" placeholder="e.g. Missed stamp on Nov 12">
+          </label>
+        </div>
+        <button class="btn btn-block" type="submit">Add stamps</button>
+        <p class="form-error" hidden></p>
+      </form>
     </section>
 
     <section class="panel">

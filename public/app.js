@@ -91,7 +91,7 @@
         ? '🎉 Card full! Your free coffee is ready on your next visit.'
         : '🎉 Your coffee today is FREE!';
     }
-    if (card.stampedToday && card.currentStamps === 0) {
+    if (card.todayKind === 'free_coffee') {
       return '☕ Enjoy your free coffee! Your new card starts on your next visit.';
     }
     const left = `${plural(card.visitsUntilFree, 'more visit')} until a free coffee.`;
@@ -400,7 +400,7 @@
     const status = bind('status');
     status.textContent = statusText(card);
     status.classList.toggle('free', card.nextIsFree);
-    bind('progress').textContent = `${card.currentStamps} / ${card.cardSize - 1} stamps`;
+    bind('progress').textContent = `${card.currentStamps} / ${card.cardSize - 1} stamps${card.extraStamps ? ` +${card.extraStamps} extra` : ''}`;
     renderStamps(bind('stamps'), card);
     bind('lifetimePoints').textContent = card.lifetimePoints.toLocaleString();
     bind('lifetimeVisits').textContent = card.lifetimeVisits.toLocaleString();
@@ -433,8 +433,10 @@
       const li = document.createElement('li');
       const what = document.createElement('span');
       const when = document.createElement('span');
-      what.textContent = h.kind === 'free_coffee' ? '☕ Free coffee redeemed' : '+1 stamp';
-      if (h.kind === 'free_coffee') what.className = 'free-row';
+      what.textContent = h.kind === 'free_coffee' ? '☕ Free coffee redeemed'
+        : h.kind === 'adjustment' ? `🎁 +${plural(h.stamps, 'stamp')} from Engine House${h.note ? ` — ${h.note}` : ''}`
+          : '+1 stamp';
+      if (h.kind !== 'stamp') what.className = 'free-row';
       when.className = 'when';
       when.textContent = fmtDateTime(h.at);
       li.append(what, when);
@@ -488,10 +490,10 @@
       const s = bind('status');
       const btn = stampForm.querySelector('button[type="submit"]');
       if (card.stampedToday) {
-        s.textContent = card.nextIsFree
-          ? '✅ Stamped today. Card is full — free coffee on their next visit.'
-          : card.currentStamps === 0
-            ? '☕ Free coffee redeemed today · new card starts next visit'
+        s.textContent = card.todayKind === 'free_coffee'
+          ? '☕ Free coffee redeemed today · new card starts next visit'
+          : card.nextIsFree
+            ? '✅ Stamped today. Card is full — free coffee on their next visit.'
             : `✅ Already stamped today · ${plural(card.currentStamps, 'stamp')} · ${card.visitsUntilFree} visits until free`;
         btn.textContent = 'Already stamped today';
       } else if (card.nextIsFree) {
@@ -501,6 +503,7 @@
         s.textContent = `${plural(card.currentStamps, 'stamp')} · ${card.visitsUntilFree} visits until free · ${card.lifetimePoints} lifetime pts`;
         btn.textContent = "Add today's stamp";
       }
+      if (card.extraStamps) s.textContent += ` · +${card.extraStamps} extra carry over`;
       s.classList.toggle('free', card.nextIsFree && !card.stampedToday);
       btn.dataset.done = card.stampedToday ? '1' : '';
       btn.disabled = card.stampedToday;
@@ -517,10 +520,29 @@
       }
     }
 
+    const adjustForm = $('#adjust-form');
+    adjustForm.hidden = !me.user.isAdmin;
+    adjustForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!currentCode) return;
+      const count = Number(adjustForm.count.value);
+      withBusy(adjustForm, async () => {
+        if (!Number.isInteger(count) || count < 1 || count > 100) throw new Error('Enter a number of stamps from 1 to 100.');
+        if (count >= 10 && !confirm(`Add ${count} stamps to ${bind('memberName').textContent}'s card?`)) return;
+        const data = await api(`/api/admin/members/${encodeURIComponent(currentCode)}/stamps`, {
+          method: 'POST', body: { count, note: adjustForm.note.value },
+        });
+        showMember(data);
+        adjustForm.reset();
+        toast(`Added ${plural(data.added, 'stamp')} to ${data.member.name}'s card`, 'ok');
+      });
+    });
+
     lookupForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const code = lookupForm.code.value.trim();
       showError(stampForm, null);
+      showError(adjustForm, null);
       if (code) lookup(code);
     });
 

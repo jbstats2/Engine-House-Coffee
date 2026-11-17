@@ -15,13 +15,16 @@ let db;
 
 before(async () => {
   db = openDb(':memory:');
-  const app = createApp({ db });
+  const app = createApp({ db, authRateLimit: 1000 });
   await new Promise((r) => { server = app.listen(0, r); });
   base = `http://127.0.0.1:${server.address().port}`;
 
   db.prepare(`INSERT INTO users (email, name, password_hash, role, member_code, created_at)
               VALUES ('barista@example.com', 'Sam', ?, 'staff', 'STAF-F222', ?)`)
     .run(sec.hashPassword('baristaPass123'), Date.now());
+  db.prepare(`INSERT INTO users (email, name, password_hash, role, is_admin, member_code, created_at)
+              VALUES ('owner@example.com', 'Owner', ?, 'staff', 1, 'OWNR-2222', ?)`)
+    .run(sec.hashPassword('ownerPass1234'), Date.now());
 });
 
 after(() => server.close());
@@ -268,6 +271,56 @@ test('self-scan with a full card redeems the free coffee and returns a voucher',
   assert.equal(r.data.card.voucher.expiresAt - r.data.card.voucher.redeemedAt, 30 * 60 * 1000);
   // Voucher is still visible on reopening the app.
   assert.ok((await c('/api/me')).data.card.voucher);
+});
+
+test('admin can add any number of stamps; extras carry over past a full card', async () => {
+  const c = client();
+  await c('/api/auth/register', { method: 'POST', body: { name: 'Missed Day', email: 'missed@example.com', password: 'macchiato2026' } });
+  const code = (await c('/api/me')).data.user.memberCode;
+
+  const barista = client();
+  await barista('/api/auth/login', { method: 'POST', body: { email: 'barista@example.com', password: 'baristaPass123' } });
+  assert.equal((await barista('/api/me')).data.user.isAdmin, false);
+  assert.equal((await barista(`/api/admin/members/${code}/stamps`, { method: 'POST', body: { count: 3 } })).status, 403);
+  assert.equal((await c(`/api/admin/members/${code}/stamps`, { method: 'POST', body: { count: 3 } })).status, 403);
+
+  const owner = client();
+  await owner('/api/auth/login', { method: 'POST', body: { email: 'owner@example.com', password: 'ownerPass1234' } });
+  assert.equal((await owner('/api/me')).data.user.isAdmin, true);
+  assert.equal((await owner(`/api/admin/members/${code}/stamps`, { method: 'POST', body: { count: 0 } })).status, 400);
+  assert.equal((await owner(`/api/admin/members/${code}/stamps`, { method: 'POST', body: { count: 101 } })).status, 400);
+
+  let r = await owner(`/api/admin/members/${code}/stamps`, { method: 'POST', body: { count: 2, note: 'Missed stamp on Nov 12' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.card.currentStamps, 2);
+  assert.equal(r.data.card.lifetimePoints, 2);
+  // Adjustments don't use up the customer's daily stamp.
+  assert.equal(r.data.card.stampedToday, false);
+  r = await owner(`/api/admin/members/${code}/visit`.replace('/admin/', '/staff/'), { method: 'POST', body: {} });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.card.currentStamps, 3);
+  // Same-day adjustment is still allowed (that's the point).
+  r = await owner(`/api/admin/members/${code}/stamps`, { method: 'POST', body: { count: 7 } });
+  assert.equal(r.data.card.currentStamps, 7);
+  assert.equal(r.data.card.extraStamps, 3);
+  assert.equal(r.data.card.nextIsFree, true);
+  assert.equal(r.data.card.lifetimePoints, 10);
+
+  // Next day: free coffee, and the 3 extra stamps start the new card.
+  const userId = db.prepare("SELECT id FROM users WHERE email = 'missed@example.com'").get().id;
+  const tomorrow = Date.now() + 24 * 60 * 60 * 1000;
+  assert.deepEqual(recordVisit(db, { userId, staffId: null, now: tomorrow }), { kind: 'free_coffee', currentStamps: 3 });
+  const card = cardSummary(db, db.prepare('SELECT * FROM users WHERE id = ?').get(userId), tomorrow);
+  assert.equal(card.todayKind, 'free_coffee');
+  assert.equal(card.currentStamps, 3);
+  assert.equal(card.freeRedeemed, 1);
+
+  // The customer sees it in their history and download.
+  const hist = (await c('/api/me/history')).data.history;
+  const adj = hist.filter((h) => h.kind === 'adjustment');
+  assert.equal(adj.length, 2);
+  assert.ok(adj.some((h) => h.stamps === 2 && h.note === 'Missed stamp on Nov 12'));
+  assert.match((await c('/api/me/history.csv')).data, /2 stamps added by Engine House \(Missed stamp on Nov 12\)/);
 });
 
 test('logout invalidates the session server-side', async () => {

@@ -3,6 +3,9 @@
 // Create a staff (barista) account, or promote an existing account to staff.
 //
 //   npm run create-staff -- --email barista@example.com --name "Sam"
+//   npm run create-staff -- --email manager@example.com --admin
+//
+// --admin also lets the account add extra stamps to customers' cards.
 //
 // You'll be prompted for a password (input is hidden).
 
@@ -27,6 +30,7 @@ function askHidden(question) {
 (async () => {
   const email = (arg('email') || '').trim().toLowerCase();
   const name = (arg('name') || 'Staff').trim();
+  const admin = process.argv.includes('--admin') ? 1 : 0;
   if (!sec.validateEmail(email)) {
     console.error('Usage: npm run create-staff -- --email you@example.com [--name "Your Name"]');
     process.exit(1);
@@ -35,8 +39,8 @@ function askHidden(question) {
   const db = openDb(process.env.DB_FILE || path.join(__dirname, '..', 'data', 'loyalty.db'));
   const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (existing) {
-    db.prepare("UPDATE users SET role = 'staff' WHERE id = ?").run(existing.id);
-    console.log(`${email} is now a staff account.`);
+    db.prepare("UPDATE users SET role = 'staff', is_admin = MAX(is_admin, ?) WHERE id = ?").run(admin, existing.id);
+    console.log(`${email} is now a ${admin ? 'staff (admin)' : 'staff'} account.`);
     return;
   }
 
@@ -49,8 +53,8 @@ function askHidden(question) {
   while (db.prepare('SELECT 1 FROM users WHERE member_code = ?').get(code));
 
   db.prepare(`
-    INSERT INTO users (email, name, password_hash, role, member_code, created_at)
-    VALUES (?, ?, ?, 'staff', ?, ?)
-  `).run(email, name, sec.hashPassword(password), code, Date.now());
-  console.log(`Staff account created for ${email}.`);
+    INSERT INTO users (email, name, password_hash, role, is_admin, member_code, created_at)
+    VALUES (?, ?, ?, 'staff', ?, ?, ?)
+  `).run(email, name, sec.hashPassword(password), admin, code, Date.now());
+  console.log(`${admin ? 'Admin' : 'Staff'} account created for ${email}.`);
 })();

@@ -10,16 +10,23 @@ const DB_FILE = process.env.DB_FILE || path.join(__dirname, '..', 'data', 'loyal
 
 const db = openDb(DB_FILE);
 
-// First barista account for hosted deploys, where there may be no shell to
+// Owner (admin) account for hosted deploys, where there may be no shell to
 // run `npm run create-staff`. Set STAFF_EMAIL + STAFF_PASSWORD once. If the
-// account already exists, nothing is changed (the password is never reset
-// from here), so it's safe to leave these set.
+// account already exists it is only made sure to be an admin (the password is
+// never reset from here), so it's safe to leave these set.
 function bootstrapStaff() {
   const email = (process.env.STAFF_EMAIL || '').trim().toLowerCase();
   const password = process.env.STAFF_PASSWORD || '';
   if (!email) return;
   if (!sec.validateEmail(email)) return console.warn('STAFF_EMAIL is not a valid email; skipping.');
-  if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) return;
+  const existing = db.prepare('SELECT id, role, is_admin FROM users WHERE email = ?').get(email);
+  if (existing) {
+    if (existing.role === 'staff' && !existing.is_admin) {
+      db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(existing.id);
+      console.log(`${email} is now an admin.`);
+    }
+    return;
+  }
   const pwErr = sec.validatePassword(password);
   if (pwErr) return console.warn(`STAFF_PASSWORD rejected: ${pwErr} Staff account not created.`);
 
@@ -27,10 +34,10 @@ function bootstrapStaff() {
   do code = sec.newMemberCode();
   while (db.prepare('SELECT 1 FROM users WHERE member_code = ?').get(code));
   db.prepare(`
-    INSERT INTO users (email, name, password_hash, role, member_code, created_at)
-    VALUES (?, ?, ?, 'staff', ?, ?)
-  `).run(email, process.env.STAFF_NAME || 'Barista', sec.hashPassword(password), code, Date.now());
-  console.log(`Created staff account ${email}.`);
+    INSERT INTO users (email, name, password_hash, role, is_admin, member_code, created_at)
+    VALUES (?, ?, ?, 'staff', 1, ?, ?)
+  `).run(email, process.env.STAFF_NAME || 'Owner', sec.hashPassword(password), code, Date.now());
+  console.log(`Created admin account ${email}.`);
 }
 bootstrapStaff();
 

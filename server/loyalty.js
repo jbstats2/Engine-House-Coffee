@@ -36,7 +36,8 @@ function recordVisit(db, { userId, staffId, now = Date.now() }) {
     }
 
     const free = user.current_stamps >= PAID_STAMPS_FOR_FREE;
-    const stamps = free ? 0 : user.current_stamps + 1;
+    // Extra stamps an admin added beyond a full card carry over to the next card.
+    const stamps = free ? user.current_stamps - PAID_STAMPS_FOR_FREE : user.current_stamps + 1;
 
     db.prepare('INSERT INTO transactions (user_id, staff_id, kind, day, created_at) VALUES (?, ?, ?, ?, ?)')
       .run(userId, staffId, free ? 'free_coffee' : 'stamp', day, now);
@@ -57,6 +58,33 @@ function recordVisit(db, { userId, staffId, now = Date.now() }) {
   }
 }
 
+/**
+ * Admin adjustment: add any number of stamps, ignoring the once-a-day rule
+ * (for a missed day, a mistake, a goodwill gesture). Each stamp also counts
+ * as a lifetime point and a visit. Stamps beyond a full card are kept and
+ * carry over to the next card after the free coffee.
+ */
+function addStamps(db, { userId, adminId, count, note, now = Date.now() }) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const user = db.prepare('SELECT id FROM users WHERE id = ? AND role = ?').get(userId, 'customer');
+    if (!user) throw Object.assign(new Error('Member not found.'), { status: 404 });
+    db.prepare('INSERT INTO adjustments (user_id, admin_id, stamps, note, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(userId, adminId, count, note || null, now);
+    db.prepare(`
+      UPDATE users SET
+        current_stamps   = current_stamps + ?,
+        lifetime_points  = lifetime_points + ?,
+        lifetime_coffees = lifetime_coffees + ?
+      WHERE id = ?
+    `).run(count, count, count, userId);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 function cardSummary(db, user, now = Date.now()) {
   // A free coffee redeemed in the last 30 minutes: the phone shows a live voucher.
   const lastFree = db.prepare(`
@@ -65,10 +93,12 @@ function cardSummary(db, user, now = Date.now()) {
   `).get(user.id, now - VOUCHER_MS);
   return {
     cardSize: CARD_SIZE,
-    currentStamps: user.current_stamps,
+    currentStamps: Math.min(user.current_stamps, PAID_STAMPS_FOR_FREE),
+    extraStamps: Math.max(0, user.current_stamps - PAID_STAMPS_FOR_FREE),
     nextIsFree: user.current_stamps >= PAID_STAMPS_FOR_FREE,
     visitsUntilFree: Math.max(0, PAID_STAMPS_FOR_FREE - user.current_stamps),
     stampedToday: stampedOnDay(db, user.id, shopDay(now)),
+    todayKind: db.prepare('SELECT kind FROM transactions WHERE user_id = ? AND day = ?').get(user.id, shopDay(now))?.kind || null,
     lifetimePoints: user.lifetime_points,
     lifetimeVisits: user.lifetime_coffees,
     freeRedeemed: user.free_redeemed,
@@ -76,4 +106,4 @@ function cardSummary(db, user, now = Date.now()) {
   };
 }
 
-module.exports = { recordVisit, cardSummary, shopDay, PAID_STAMPS_FOR_FREE };
+module.exports = { recordVisit, addStamps, cardSummary, shopDay, PAID_STAMPS_FOR_FREE };
