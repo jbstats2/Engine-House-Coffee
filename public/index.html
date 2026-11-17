@@ -135,7 +135,37 @@
   </template>
 
   <template id="tpl-staff">
-    <section class="panel">
+    <nav class="tabs staff-tabs" data-bind="staffTabs" role="tablist" hidden>
+      <button role="tab" class="tab active" data-tab="station" aria-selected="true">☕ Register</button>
+      <button role="tab" class="tab" data-tab="members" aria-selected="false">👥 Members</button>
+    </nav>
+
+    <section class="panel" data-view="members">
+      <div class="row-between">
+        <h1>Members</h1>
+        <a class="btn btn-small btn-ghost" href="/api/admin/members.csv" download>⬇ Download CSV</a>
+      </div>
+      <div class="stats summary">
+        <div class="stat"><span class="stat-num" data-bind="sumMembers">–</span><span class="stat-label">Members</span></div>
+        <div class="stat"><span class="stat-num" data-bind="sumNew">–</span><span class="stat-label">New this week</span></div>
+        <div class="stat"><span class="stat-num" data-bind="sumToday">–</span><span class="stat-label">Visits today</span></div>
+        <div class="stat"><span class="stat-num" data-bind="sumFree">–</span><span class="stat-label">Free coffees</span></div>
+      </div>
+      <div class="members-tools">
+        <input type="search" data-bind="memberSearch" placeholder="Search…" aria-label="Search members by name, email or code" autocomplete="off">
+        <select data-bind="memberSort" aria-label="Sort members">
+          <option value="joined">Newest</option>
+          <option value="lastVisit">Last visit</option>
+          <option value="lifetimeVisits">Most visits</option>
+          <option value="name">Name A–Z</option>
+          <option value="closest">Closest to free</option>
+        </select>
+      </div>
+      <p class="muted small" data-bind="membersCount"></p>
+      <ul class="members" data-bind="membersList"></ul>
+    </section>
+
+    <section class="panel sign-panel" data-view="station">
       <h1>Register QR sticker</h1>
       <p class="muted">Signed in as <span data-bind="name"></span>. Customers scan this code with the Engine House app to collect their stamp — one per day. When their card is full, their phone shows a live <strong>FREE COFFEE</strong> voucher: don't charge for one drink.</p>
       <div class="print-sign">
@@ -157,7 +187,7 @@
       </details>
     </section>
 
-    <section class="panel">
+    <section class="panel" data-view="station" data-bind="lookupPanel">
       <h2>Manual stamp (backup)</h2>
       <p class="muted">For customers who can't scan. Scan their member code or type it in.</p>
 
@@ -180,7 +210,7 @@
       <p class="form-error" data-bind="lookupError" hidden></p>
     </section>
 
-    <section class="panel" data-bind="memberPanel" hidden>
+    <section class="panel" data-bind="memberPanel" data-view="station" hidden>
       <h2 data-bind="memberName"></h2>
       <p class="muted" data-bind="memberCode"></p>
       <div class="stamp-card compact">

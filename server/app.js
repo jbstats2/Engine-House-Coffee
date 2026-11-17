@@ -8,7 +8,7 @@ const QRCode = require('qrcode');
 
 const config = require('./config');
 const sec = require('./security');
-const { recordVisit, addStamps, removeStamps, undoTodayStamp, cardSummary } = require('./loyalty');
+const { recordVisit, addStamps, removeStamps, undoTodayStamp, cardSummary, shopDay, PAID_STAMPS_FOR_FREE } = require('./loyalty');
 const registerQr = require('./registerQr');
 
 function parseCookies(header) {
@@ -20,6 +20,14 @@ function parseCookies(header) {
     out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
   }
   return out;
+}
+
+// CSV cell, with spreadsheet formula injection blocked (a name like
+// "=HYPERLINK(...)" is written as text, not run as a formula).
+function csvCell(v) {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 function httpError(status, message) {
@@ -244,11 +252,6 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
       ['Date (UTC)', 'Activity'],
       ...historyRows(u.id, 100000).map((r) => [new Date(r.created_at).toISOString(), historyLabel(r)]),
     ];
-    const csvCell = (v) => {
-      let s = String(v);
-      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // block spreadsheet formula injection
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
     res.set('Cache-Control', 'no-store');
     res.attachment('engine-house-loyalty.csv').type('text/csv')
       .send(lines.map((l) => l.map(csvCell).join(',')).join('\r\n'));
@@ -275,6 +278,62 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
   });
 
   // ---- Staff --------------------------------------------------------------
+
+  // ---- Admin: members database -------------------------------------------
+
+  function memberRows() {
+    return db.prepare(`
+      SELECT u.name, u.email, u.member_code, u.created_at, u.current_stamps,
+             u.lifetime_points, u.lifetime_coffees, u.free_redeemed,
+             (SELECT MAX(created_at) FROM transactions t WHERE t.user_id = u.id) AS last_visit
+      FROM users u WHERE u.role = 'customer'
+      ORDER BY u.created_at DESC
+    `).all();
+  }
+
+  app.get('/api/admin/members', requireAdmin, (_req, res) => {
+    const now = Date.now();
+    const rows = memberRows();
+    const today = shopDay(now);
+    res.set('Cache-Control', 'no-store').json({
+      summary: {
+        members: rows.length,
+        newThisWeek: rows.filter((r) => r.created_at > now - 7 * 24 * 60 * 60 * 1000).length,
+        visitsToday: db.prepare(`
+          SELECT COUNT(*) AS n FROM transactions t JOIN users u ON u.id = t.user_id
+          WHERE t.day = ? AND u.role = 'customer'`).get(today).n,
+        freeCoffees: rows.reduce((sum, r) => sum + r.free_redeemed, 0),
+        lifetimePoints: rows.reduce((sum, r) => sum + r.lifetime_points, 0),
+      },
+      members: rows.map((r) => ({
+        name: r.name,
+        email: r.email,
+        memberCode: r.member_code,
+        joined: r.created_at,
+        lastVisit: r.last_visit,
+        currentStamps: Math.min(r.current_stamps, PAID_STAMPS_FOR_FREE),
+        extraStamps: Math.max(0, r.current_stamps - PAID_STAMPS_FOR_FREE),
+        lifetimePoints: r.lifetime_points,
+        lifetimeVisits: r.lifetime_coffees,
+        freeRedeemed: r.free_redeemed,
+      })),
+    });
+  });
+
+  app.get('/api/admin/members.csv', requireAdmin, (_req, res) => {
+    const iso = (ms) => (ms ? new Date(ms).toISOString() : '');
+    const lines = [
+      ['Name', 'Email', 'Member code', 'Joined (UTC)', 'Last visit (UTC)', 'Current stamps',
+        'Lifetime points', 'Lifetime visits', 'Free coffees redeemed'],
+      ...memberRows().map((r) => [
+        r.name, r.email, r.member_code, iso(r.created_at), iso(r.last_visit),
+        r.current_stamps, r.lifetime_points, r.lifetime_coffees, r.free_redeemed,
+      ]),
+    ];
+    res.set('Cache-Control', 'no-store');
+    res.attachment(`engine-house-members-${shopDay()}.csv`).type('text/csv')
+      .send(lines.map((l) => l.map(csvCell).join(',')).join('\r\n'));
+  });
 
   // Admin: add any number of stamps (e.g. a missed day), ignoring the daily limit.
   app.post('/api/admin/members/:code/stamps', requireAdmin, (req, res) => {

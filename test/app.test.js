@@ -376,6 +376,45 @@ test('admin can remove stamps (not below zero) and undo today\'s stamp', async (
   assert.match((await c('/api/me/history.csv')).data, /2 stamps removed by Engine House \(Added too many\)/);
 });
 
+test('admin members database: list, summary and CSV (admin only)', async () => {
+  const c = client();
+  await c('/api/auth/register', { method: 'POST', body: { name: '=HYPERLINK("x")', email: 'sneaky@example.com', password: 'ristretto2026' } });
+
+  const barista = client();
+  await barista('/api/auth/login', { method: 'POST', body: { email: 'barista@example.com', password: 'baristaPass123' } });
+  assert.equal((await barista('/api/admin/members')).status, 403);
+  assert.equal((await barista('/api/admin/members.csv')).status, 403);
+  assert.equal((await c('/api/admin/members')).status, 403);
+  assert.equal((await client()('/api/admin/members')).status, 401);
+
+  const owner = client();
+  await owner('/api/auth/login', { method: 'POST', body: { email: 'owner@example.com', password: 'ownerPass1234' } });
+  const r = await owner('/api/admin/members');
+  assert.equal(r.status, 200);
+  const { members, summary } = r.data;
+  // Customers only — staff accounts aren't listed.
+  assert.ok(members.every((m) => !['barista@example.com', 'owner@example.com'].includes(m.email)));
+  assert.equal(summary.members, members.length);
+  assert.ok(summary.newThisWeek >= 1);
+  assert.ok(summary.visitsToday >= 1);
+  const grace = members.find((m) => m.email === 'grace@example.com');
+  assert.equal(grace.name, 'Grace');
+  assert.match(grace.memberCode, /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+  assert.equal(grace.currentStamps, 1);
+  assert.ok(grace.lastVisit > 0);
+  assert.equal(members.find((m) => m.email === 'sneaky@example.com').lastVisit, null);
+  // No secrets leak.
+  assert.ok(members.every((m) => !('password_hash' in m) && !('passwordHash' in m)));
+
+  const csv = await owner('/api/admin/members.csv');
+  assert.equal(csv.status, 200);
+  assert.match(csv.headers.get('content-disposition'), /attachment; filename="engine-house-members-\d{4}-\d{2}-\d{2}\.csv"/);
+  assert.match(csv.data, /^Name,Email,Member code,/);
+  assert.match(csv.data, /grace@example\.com/);
+  // Formula-looking names are written as text, not formulas.
+  assert.match(csv.data, /"'=HYPERLINK\(""x""\)"/);
+});
+
 test('logout invalidates the session server-side', async () => {
   const c = client();
   await c('/api/auth/login', { method: 'POST', body: { email: 'ada@example.com', password: 'espresso12345' } });

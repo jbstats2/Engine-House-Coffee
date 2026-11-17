@@ -17,6 +17,7 @@ A loyalty app with a digital stamp card. **Get one stamp per day you visit. Afte
   - **Add:** any number of stamps (1–100), for a missed day or to make something right. Ignores the once-a-day limit. Stamps beyond a full card carry over to the next card after the free coffee.
   - **Remove:** takes stamps off the current card, never below zero, and lowers lifetime points to match.
   - **Undo today's stamp:** for the wrong person or a double scan. Takes the stamp back and frees their daily stamp so they can collect it again today. A free coffee can't be undone this way.
+- **Admin: members database.** The admin sees a **👥 Members** tab listing every registered customer: name, email, member code, current card, lifetime points, visits, free coffees, sign-up date and last visit. At the top are totals: members, new this week, visits today and free coffees. You can search by name, email or code, sort (newest, last visit, most visits, A–Z, closest to free), and tap a member to open their card and adjust stamps. **⬇ Download CSV** exports everyone for a spreadsheet.
 - **Barista station (backup).** Staff accounts get a different screen. They scan the customer's QR code with the camera (on supported browsers) or type the member code, then tap **Add today's stamp**. This is for customers who can't scan. When a card is full, the button changes to **Redeem FREE coffee** so staff know not to charge. Once a customer has been stamped that day, the button greys out. Customers can't add stamps to their own cards.
 
 ## Run it

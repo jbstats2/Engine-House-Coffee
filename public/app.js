@@ -453,11 +453,112 @@
     mount('tpl-staff');
     bind('name').textContent = me.user.name;
     wireCommon();
+    app.dataset.tab = 'station';
+    if (me.user.isAdmin) setupMembersTab();
 
     // Someone opened the sticker link while signed in as staff.
     if (sessionStorage.getItem(PENDING_KEY)) {
       sessionStorage.removeItem(PENDING_KEY);
       toast("That's the register code ✓ — customers scan it from their own account.", 'ok');
+    }
+
+    // ----- Members database (admin) -----
+    function setupMembersTab() {
+      const tabs = bind('staffTabs');
+      tabs.hidden = false;
+      let members = [];
+      const showTab = (name) => {
+        app.dataset.tab = name;
+        tabs.querySelectorAll('.tab').forEach((t) => {
+          const on = t.dataset.tab === name;
+          t.classList.toggle('active', on);
+          t.setAttribute('aria-selected', String(on));
+        });
+        if (name === 'members') loadMembers();
+        window.scrollTo({ top: 0 });
+      };
+      tabs.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => showTab(t.dataset.tab)));
+
+      async function loadMembers() {
+        try {
+          const data = await api('/api/admin/members');
+          members = data.members;
+          const sm = data.summary;
+          bind('sumMembers').textContent = sm.members.toLocaleString();
+          bind('sumNew').textContent = sm.newThisWeek.toLocaleString();
+          bind('sumToday').textContent = sm.visitsToday.toLocaleString();
+          bind('sumFree').textContent = sm.freeCoffees.toLocaleString();
+          renderMembers();
+        } catch (err) { toast(err.message, 'err'); }
+      }
+
+      const sorters = {
+        joined: (a, b) => b.joined - a.joined,
+        lastVisit: (a, b) => (b.lastVisit || 0) - (a.lastVisit || 0),
+        lifetimeVisits: (a, b) => b.lifetimeVisits - a.lifetimeVisits,
+        name: (a, b) => a.name.localeCompare(b.name),
+        closest: (a, b) => (b.currentStamps + b.extraStamps) - (a.currentStamps + a.extraStamps),
+      };
+
+      function renderMembers() {
+        const q = bind('memberSearch').value.trim().toLowerCase();
+        const qCode = q.replace(/[^a-z0-9]/g, '');
+        const list = members
+          .filter((m) => !q || m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)
+            || (qCode && m.memberCode.toLowerCase().replace('-', '').includes(qCode)))
+          .sort(sorters[bind('memberSort').value] || sorters.joined);
+
+        bind('membersCount').textContent = q
+          ? `${list.length} ${list.length === 1 ? 'match' : 'matches'} of ${members.length}`
+          : `${plural(members.length, 'member')} · tap one to adjust their stamps`;
+        const ul = bind('membersList');
+        ul.replaceChildren();
+        if (!list.length) {
+          const li = document.createElement('li');
+          li.className = 'empty';
+          li.textContent = members.length ? 'No members match that search.' : 'No one has signed up yet.';
+          ul.append(li);
+          return;
+        }
+        const frag = document.createDocumentFragment();
+        for (const m of list.slice(0, 500)) {
+          const li = document.createElement('li');
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'member-row';
+          const span = (cls, text) => { const e = document.createElement('span'); e.className = cls; e.textContent = text; return e; };
+          const meta = span('m-meta', '');
+          const dots = document.createElement('span');
+          dots.className = 'm-dots';
+          dots.setAttribute('aria-hidden', 'true');
+          for (let i = 0; i < 7; i++) {
+            const d = document.createElement('i');
+            if (i < m.currentStamps) d.className = m.currentStamps >= 7 ? 'on free' : 'on';
+            dots.append(d);
+          }
+          meta.append(dots, document.createTextNode(
+            `${m.currentStamps}/7${m.extraStamps ? ` +${m.extraStamps}` : ''} · ${plural(m.lifetimePoints, 'pt')} · ${plural(m.lifetimeVisits, 'visit')} · ${m.freeRedeemed} free`
+            + ` · joined ${fmtDate(m.joined)}${m.lastVisit ? ` · last ${fmtDate(m.lastVisit)}` : ' · no visits yet'}`,
+          ));
+          row.append(span('m-name', m.name), span('m-code', m.memberCode), span('m-email', m.email), meta);
+          row.addEventListener('click', () => {
+            showTab('station');
+            lookupForm.code.value = m.memberCode;
+            lookup(m.memberCode).then(() => bind('memberPanel').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+          });
+          li.append(row);
+          frag.append(li);
+        }
+        ul.append(frag);
+        if (list.length > 500) {
+          const li = document.createElement('li');
+          li.className = 'empty';
+          li.textContent = `Showing the first 500 — search to narrow it down, or download the CSV for everyone.`;
+          ul.append(li);
+        }
+      }
+      bind('memberSearch').addEventListener('input', renderMembers);
+      bind('memberSort').addEventListener('change', renderMembers);
     }
 
     // Register sticker
