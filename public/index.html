@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Engine House Coffee — Rewards</title>
+  <meta name="description" content="Collect stamps with every coffee. Your 8th coffee is on us.">
+  <meta name="theme-color" content="#2b1a12">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Engine House">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/icons/icon.svg" alt="" width="36" height="36">
+      <div>
+        <strong>Engine House</strong>
+        <span>Coffee Rewards</span>
+      </div>
+    </div>
+    <button id="install-btn" class="btn btn-small btn-ghost" hidden>⬇ Install app</button>
+  </header>
+
+  <main id="app">
+    <p class="loading">Loading…</p>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- ===== Templates ===== -->
+
+  <template id="tpl-auth">
+    <section class="panel auth">
+      <h1>Every 8th coffee is <em>free</em>.</h1>
+      <p class="muted">Collect a stamp with every coffee. Fill the card and the next one's on us.</p>
+
+      <div class="tabs" role="tablist">
+        <button role="tab" class="tab active" data-tab="login" aria-selected="true">Sign in</button>
+        <button role="tab" class="tab" data-tab="register" aria-selected="false">Create account</button>
+      </div>
+
+      <form id="login-form" class="form" novalidate>
+        <label>Email <input name="email" type="email" autocomplete="username" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <p class="form-error" hidden></p>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+      </form>
+
+      <form id="register-form" class="form" novalidate hidden>
+        <label>Name <input name="name" autocomplete="name" maxlength="80" required></label>
+        <label>Email <input name="email" type="email" autocomplete="email" required></label>
+        <label>Password
+          <input name="password" type="password" autocomplete="new-password" minlength="10" required>
+          <small class="muted">At least 10 characters, with letters and numbers.</small>
+        </label>
+        <p class="form-error" hidden></p>
+        <button class="btn btn-primary" type="submit">Create account</button>
+      </form>
+    </section>
+  </template>
+
+  <template id="tpl-customer">
+    <section class="panel greeting">
+      <h1>Hi, <span data-bind="name"></span></h1>
+      <p class="status" data-bind="status"></p>
+    </section>
+
+    <section class="panel card-panel">
+      <div class="stamp-card">
+        <div class="stamp-card-head">
+          <span>Engine House Coffee</span>
+          <span class="muted" data-bind="progress"></span>
+        </div>
+        <ol class="stamps" data-bind="stamps"></ol>
+        <p class="stamp-card-foot">Buy 7, your 8th coffee is free</p>
+      </div>
+    </section>
+
+    <section class="panel member">
+      <h2>Your member card</h2>
+      <p class="muted">Show this to your barista to collect a stamp.</p>
+      <img class="qr" data-bind="qr" alt="Your member QR code" width="200" height="200">
+      <p class="member-code" data-bind="code"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Lifetime</h2>
+      <div class="stats">
+        <div class="stat"><span class="stat-num" data-bind="lifetimePoints">0</span><span class="stat-label">Lifetime points</span></div>
+        <div class="stat"><span class="stat-num" data-bind="lifetimeCoffees">0</span><span class="stat-label">Coffees enjoyed</span></div>
+        <div class="stat"><span class="stat-num" data-bind="freeRedeemed">0</span><span class="stat-label">Free coffees</span></div>
+      </div>
+      <p class="muted small">Member since <span data-bind="since"></span></p>
+    </section>
+
+    <section class="panel">
+      <div class="row-between">
+        <h2>Recent activity</h2>
+        <a class="btn btn-small btn-ghost" href="/api/me/history.csv" download>⬇ Download</a>
+      </div>
+      <ul class="history" data-bind="history"></ul>
+    </section>
+
+    <section class="panel">
+      <details>
+        <summary>Account settings</summary>
+        <form id="password-form" class="form" novalidate>
+          <label>Current password <input name="currentPassword" type="password" autocomplete="current-password" required></label>
+          <label>New password <input name="newPassword" type="password" autocomplete="new-password" minlength="10" required></label>
+          <p class="form-error" hidden></p>
+          <button class="btn" type="submit">Change password</button>
+        </form>
+      </details>
+      <button class="btn btn-ghost btn-block" data-action="logout">Sign out</button>
+    </section>
+  </template>
+
+  <template id="tpl-staff">
+    <section class="panel">
+      <h1>Barista station</h1>
+      <p class="muted">Signed in as <span data-bind="name"></span>. Scan a member's QR code or type their code.</p>
+
+      <div class="scanner" hidden>
+        <video playsinline muted></video>
+        <button class="btn btn-small" data-action="stop-scan">Stop camera</button>
+      </div>
+      <button class="btn btn-block" data-action="scan" hidden>📷 Scan QR code</button>
+
+      <form id="lookup-form" class="form inline" novalidate>
+        <label class="grow">Member code
+          <input name="code" placeholder="ABCD-2345" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+        </label>
+        <button class="btn btn-primary" type="submit">Look up</button>
+      </form>
+      <p class="form-error" data-bind="lookupError" hidden></p>
+    </section>
+
+    <section class="panel" data-bind="memberPanel" hidden>
+      <h2 data-bind="memberName"></h2>
+      <p class="muted" data-bind="memberCode"></p>
+      <div class="stamp-card compact">
+        <ol class="stamps" data-bind="stamps"></ol>
+      </div>
+      <p class="status" data-bind="status"></p>
+
+      <form id="stamp-form" class="form inline" novalidate>
+        <label>Coffees
+          <input name="count" type="number" min="1" max="20" value="1" inputmode="numeric" required>
+        </label>
+        <button class="btn btn-primary grow" type="submit">Record coffee</button>
+        <p class="form-error" hidden></p>
+      </form>
+    </section>
+
+    <section class="panel">
+      <button class="btn btn-ghost btn-block" data-action="logout">Sign out</button>
+    </section>
+  </template>
+
+  <template id="tpl-ios-install">
+    <div class="sheet">
+      <p><strong>Install on iPhone / iPad</strong></p>
+      <ol>
+        <li>Tap the <strong>Share</strong> button in Safari.</li>
+        <li>Choose <strong>Add to Home Screen</strong>.</li>
+      </ol>
+      <button class="btn btn-small" data-action="close-sheet">Got it</button>
+    </div>
+  </template>
+</body>
+</html>

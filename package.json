@@ -1,0 +1,31 @@
+{
+  "name": "engine-house-coffee-rewards",
+  "version": "1.0.0",
+  "description": "Engine House Coffee loyalty app: stamp card (8th coffee free), lifetime points, secure sign-in, installable PWA.",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "create-staff": "node --disable-warning=ExperimentalWarning scripts/create-staff.js",
+    "build-icons": "node scripts/build-icons.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jbstats2/Engine-House-Coffee.git"
+  },
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/jbstats2/Engine-House-Coffee/issues"
+  },
+  "homepage": "https://github.com/jbstats2/Engine-House-Coffee#readme",
+  "dependencies": {
+    "express": "^4.22.3",
+    "express-rate-limit": "^8.7.4",
+    "helmet": "^8.3.0",
+    "qrcode": "^1.5.4"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  }
+}
