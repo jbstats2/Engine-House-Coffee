@@ -170,13 +170,25 @@
    */
   async function startScanner(scannerEl, onCode) {
     const video = scannerEl.querySelector('video');
+    const finder = scannerEl.querySelector('.viewfinder');
+    const label = scannerEl.querySelector('.viewfinder-label');
+    // iOS Safari only shows a live camera preview for inline, muted video.
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('muted', '');
+    video.setAttribute('autoplay', '');
+
     let stream = null;
     let raf = 0;
+    let done = false;
     const stop = () => {
+      done = true;
       cancelAnimationFrame(raf);
       stream?.getTracks().forEach((t) => t.stop());
       stream = null;
       video.srcObject = null;
+      finder.classList.remove('live', 'found');
       scannerEl.hidden = true;
     };
 
@@ -201,16 +213,41 @@
       };
     }
 
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-    video.srcObject = stream;
-    await video.play();
+    // Show the viewfinder *before* starting the camera: iOS won't paint a
+    // video that began playing while hidden.
+    finder.classList.remove('live', 'found');
+    label.textContent = 'Starting camera…';
     scannerEl.hidden = false;
+    scannerEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await video.play();
+    } catch (err) {
+      stop();
+      throw err;
+    }
+    finder.classList.add('live');
+    label.textContent = 'Point at the QR code';
 
     const tick = async () => {
-      if (!stream) return;
+      if (done) return;
       try {
         const value = await detect();
-        if (value) { stop(); onCode(value); return; }
+        if (value && !done) {
+          // Freeze on the frame with a check mark so it's clear what happened.
+          done = true;
+          video.pause();
+          finder.classList.add('found');
+          label.textContent = '✓ Got it';
+          navigator.vibrate?.(60);
+          setTimeout(() => { stop(); onCode(value); }, 700);
+          return;
+        }
       } catch { /* frame not ready yet */ }
       raf = requestAnimationFrame(tick);
     };

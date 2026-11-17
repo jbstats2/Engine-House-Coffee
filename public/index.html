@@ -72,7 +72,11 @@
       <button class="btn btn-primary btn-block btn-big" data-action="scan-register">📷 Scan the register code</button>
       <button class="btn btn-block" data-action="show-voucher" hidden>☕ Show my free coffee voucher</button>
       <div class="scanner" hidden>
-        <video playsinline muted></video>
+        <div class="viewfinder">
+          <video playsinline muted autoplay></video>
+          <span class="viewfinder-frame" aria-hidden="true"></span>
+          <span class="viewfinder-label" aria-live="polite"></span>
+        </div>
         <p class="muted small">Point your camera at the Engine House QR code by the register.</p>
         <button class="btn btn-small" data-action="stop-scan">Cancel</button>
       </div>
@@ -158,7 +162,11 @@
       <p class="muted">For customers who can't scan. Scan their member code or type it in.</p>
 
       <div class="scanner" hidden>
-        <video playsinline muted></video>
+        <div class="viewfinder">
+          <video playsinline muted autoplay></video>
+          <span class="viewfinder-frame" aria-hidden="true"></span>
+          <span class="viewfinder-label" aria-live="polite"></span>
+        </div>
         <button class="btn btn-small" data-action="stop-scan">Stop camera</button>
       </div>
       <button class="btn btn-block" data-action="scan" hidden>📷 Scan QR code</button>
