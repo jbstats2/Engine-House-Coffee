@@ -85,6 +85,72 @@ function addStamps(db, { userId, adminId, count, note, now = Date.now() }) {
   }
 }
 
+const fail = (status, message) => Object.assign(new Error(message), { status });
+
+/**
+ * Admin correction: take stamps off the current card (e.g. too many were
+ * added). Can't go below zero. Lifetime points and visits are reduced to
+ * match (never below zero). Recorded as a negative adjustment so the
+ * customer's history shows it.
+ */
+function removeStamps(db, { userId, adminId, count, note, now = Date.now() }) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const user = db.prepare('SELECT current_stamps FROM users WHERE id = ? AND role = ?').get(userId, 'customer');
+    if (!user) throw fail(404, 'Member not found.');
+    if (user.current_stamps === 0) throw fail(400, 'Their card has no stamps to remove.');
+    if (count > user.current_stamps) {
+      throw fail(400, `Their card only has ${user.current_stamps} stamp${user.current_stamps === 1 ? '' : 's'}.`);
+    }
+    db.prepare('INSERT INTO adjustments (user_id, admin_id, stamps, note, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(userId, adminId, -count, note || null, now);
+    db.prepare(`
+      UPDATE users SET
+        current_stamps   = current_stamps - ?,
+        lifetime_points  = MAX(0, lifetime_points - ?),
+        lifetime_coffees = MAX(0, lifetime_coffees - ?)
+      WHERE id = ?
+    `).run(count, count, count, userId);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * Admin correction: undo the stamp a customer earned today (wrong person,
+ * double scan...). Takes the stamp back off the card and frees up their
+ * daily stamp so they can collect it again today. The original visit stays
+ * in the history, with a matching "-1" correction next to it.
+ */
+function undoTodayStamp(db, { userId, adminId, now = Date.now() }) {
+  const day = shopDay(now);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const tx = db.prepare('SELECT id, kind FROM transactions WHERE user_id = ? AND day = ?').get(userId, day);
+    if (!tx) throw fail(400, "They haven't been stamped today.");
+    if (tx.kind !== 'stamp') throw fail(400, "Today's visit was a free coffee, which can't be undone here.");
+    const user = db.prepare('SELECT current_stamps FROM users WHERE id = ?').get(userId);
+    // Keep the record, but release the once-a-day slot.
+    db.prepare('UPDATE transactions SET day = NULL WHERE id = ?').run(tx.id);
+    const taken = Math.min(1, user.current_stamps);
+    db.prepare('INSERT INTO adjustments (user_id, admin_id, stamps, note, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(userId, adminId, -1, "Today's stamp undone", now);
+    db.prepare(`
+      UPDATE users SET
+        current_stamps   = current_stamps - ?,
+        lifetime_points  = MAX(0, lifetime_points - 1),
+        lifetime_coffees = MAX(0, lifetime_coffees - 1)
+      WHERE id = ?
+    `).run(taken, userId);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 function cardSummary(db, user, now = Date.now()) {
   // A free coffee redeemed in the last 30 minutes: the phone shows a live voucher.
   const lastFree = db.prepare(`
@@ -106,4 +172,4 @@ function cardSummary(db, user, now = Date.now()) {
   };
 }
 
-module.exports = { recordVisit, addStamps, cardSummary, shopDay, PAID_STAMPS_FOR_FREE };
+module.exports = { recordVisit, addStamps, removeStamps, undoTodayStamp, cardSummary, shopDay, PAID_STAMPS_FOR_FREE };

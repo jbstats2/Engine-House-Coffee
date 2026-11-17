@@ -13,7 +13,10 @@ A loyalty app with a digital stamp card. **Get one stamp per day you visit. Afte
 - **Self-service stamps (no staff needed).** Print the **register QR sticker** from the staff screen and stick it by the register. Customers scan it with the app's **Scan the register code** button (or their phone camera) to collect their stamp, once per day.
   - When their card is full, the scan turns their phone into a live **FREE COFFEE voucher** with a ticking clock, so screenshots are easy to spot. The barista just doesn't charge for one drink.
   - If a photo of the sticker gets shared, tap **Replace sticker** on the staff screen. The old code stops working immediately; print the new one.
-- **Admin: add stamps.** The owner/admin account can add any number of stamps (1–100) to a customer's card, for a missed day or to make something right. It's on the customer lookup screen and ignores the once-a-day limit. An optional note shows in the customer's history. Stamps beyond a full card carry over to the next card after the free coffee. Regular barista accounts don't see this option.
+- **Admin: adjust stamps.** The owner/admin account has these on the customer lookup screen. Regular barista accounts don't see them. An optional note shows in the customer's history.
+  - **Add:** any number of stamps (1–100), for a missed day or to make something right. Ignores the once-a-day limit. Stamps beyond a full card carry over to the next card after the free coffee.
+  - **Remove:** takes stamps off the current card, never below zero, and lowers lifetime points to match.
+  - **Undo today's stamp:** for the wrong person or a double scan. Takes the stamp back and frees their daily stamp so they can collect it again today. A free coffee can't be undone this way.
 - **Barista station (backup).** Staff accounts get a different screen. They scan the customer's QR code with the camera (on supported browsers) or type the member code, then tap **Add today's stamp**. This is for customers who can't scan. When a card is full, the button changes to **Redeem FREE coffee** so staff know not to charge. Once a customer has been stamped that day, the button greys out. Customers can't add stamps to their own cards.
 
 ## Run it

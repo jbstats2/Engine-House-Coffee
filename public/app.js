@@ -45,10 +45,10 @@
   }
 
   async function withBusy(form, fn) {
-    const btn = form.querySelector('button[type="submit"]');
-    btn.disabled = true;
+    const btns = [...form.querySelectorAll('button[type="submit"]')];
+    btns.forEach((b) => { b.disabled = true; });
     showError(form, null);
-    try { await fn(); } catch (err) { showError(form, err); } finally { btn.disabled = !!btn.dataset.done; }
+    try { await fn(); } catch (err) { showError(form, err); } finally { btns.forEach((b) => { b.disabled = !!b.dataset.done; }); }
   }
 
   const fmtDate = (ms) => new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -434,7 +434,10 @@
       const what = document.createElement('span');
       const when = document.createElement('span');
       what.textContent = h.kind === 'free_coffee' ? '☕ Free coffee redeemed'
-        : h.kind === 'adjustment' ? `🎁 +${plural(h.stamps, 'stamp')} from Engine House${h.note ? ` — ${h.note}` : ''}`
+        : h.kind === 'adjustment'
+          ? (h.stamps > 0
+            ? `🎁 +${plural(h.stamps, 'stamp')} from Engine House`
+            : `↩︎ −${plural(-h.stamps, 'stamp')} removed by Engine House`) + (h.note ? ` — ${h.note}` : '')
           : '+1 stamp';
       if (h.kind !== 'stamp') what.className = 'free-row';
       when.className = 'when';
@@ -478,6 +481,9 @@
     const lookupForm = $('#lookup-form');
     const stampForm = $('#stamp-form');
     const lookupErr = bind('lookupError');
+    const adjustForm = $('#adjust-form');
+    const removeBtn = adjustForm.querySelector('button[value="remove"]');
+    const undoBtn = $('[data-action="undo-today"]');
     let currentCode = null;
 
     function showMember(data) {
@@ -507,6 +513,9 @@
       s.classList.toggle('free', card.nextIsFree && !card.stampedToday);
       btn.dataset.done = card.stampedToday ? '1' : '';
       btn.disabled = card.stampedToday;
+      undoBtn.hidden = !(me.user.isAdmin && card.todayKind === 'stamp');
+      removeBtn.dataset.done = card.currentStamps + card.extraStamps === 0 ? '1' : '';
+      removeBtn.disabled = !!removeBtn.dataset.done;
     }
 
     async function lookup(code) {
@@ -520,22 +529,48 @@
       }
     }
 
-    const adjustForm = $('#adjust-form');
     adjustForm.hidden = !me.user.isAdmin;
+    // Track which button was tapped (e.submitter isn't available on older iPhones).
+    let adjustAction = null;
+    adjustForm.querySelectorAll('button[type="submit"]').forEach((b) => {
+      b.addEventListener('click', () => { adjustAction = b.value; });
+    });
     adjustForm.addEventListener('submit', (e) => {
       e.preventDefault();
       if (!currentCode) return;
+      const action = e.submitter?.value || adjustAction;
+      adjustAction = null;
+      if (action !== 'add' && action !== 'remove') return; // e.g. Enter pressed in a field: do nothing
       const count = Number(adjustForm.count.value);
+      const name = bind('memberName').textContent;
       withBusy(adjustForm, async () => {
         if (!Number.isInteger(count) || count < 1 || count > 100) throw new Error('Enter a number of stamps from 1 to 100.');
-        if (count >= 10 && !confirm(`Add ${count} stamps to ${bind('memberName').textContent}'s card?`)) return;
+        if (action === 'remove' && !confirm(`Remove ${plural(count, 'stamp')} from ${name}'s card?`)) return;
+        if (action === 'add' && count >= 10 && !confirm(`Add ${count} stamps to ${name}'s card?`)) return;
         const data = await api(`/api/admin/members/${encodeURIComponent(currentCode)}/stamps`, {
-          method: 'POST', body: { count, note: adjustForm.note.value },
+          method: 'POST', body: { count, note: adjustForm.note.value, action },
         });
         showMember(data);
         adjustForm.reset();
-        toast(`Added ${plural(data.added, 'stamp')} to ${data.member.name}'s card`, 'ok');
+        toast(action === 'remove'
+          ? `Removed ${plural(data.removed, 'stamp')} from ${data.member.name}'s card`
+          : `Added ${plural(data.added, 'stamp')} to ${data.member.name}'s card`, 'ok');
       });
+    });
+
+    undoBtn.addEventListener('click', async () => {
+      if (!currentCode) return;
+      if (!confirm(`Undo today's stamp for ${bind('memberName').textContent}? They'll be able to collect it again today.`)) return;
+      undoBtn.disabled = true;
+      try {
+        const data = await api(`/api/admin/members/${encodeURIComponent(currentCode)}/undo-today`, { method: 'POST' });
+        showMember(data);
+        toast(`Undid today's stamp for ${data.member.name}`, 'ok');
+      } catch (err) {
+        showError(adjustForm, err);
+      } finally {
+        undoBtn.disabled = false;
+      }
     });
 
     lookupForm.addEventListener('submit', (e) => {

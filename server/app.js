@@ -8,7 +8,7 @@ const QRCode = require('qrcode');
 
 const config = require('./config');
 const sec = require('./security');
-const { recordVisit, addStamps, cardSummary } = require('./loyalty');
+const { recordVisit, addStamps, removeStamps, undoTodayStamp, cardSummary } = require('./loyalty');
 const registerQr = require('./registerQr');
 
 function parseCookies(header) {
@@ -214,7 +214,9 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
   const historyLabel = (r) => {
     if (r.kind === 'free_coffee') return 'Free coffee redeemed';
     if (r.kind === 'adjustment') {
-      return `${r.stamps} stamp${r.stamps === 1 ? '' : 's'} added by Engine House${r.note ? ` (${r.note})` : ''}`;
+      const n = Math.abs(r.stamps);
+      const verb = r.stamps > 0 ? 'added' : 'removed';
+      return `${n} stamp${n === 1 ? '' : 's'} ${verb} by Engine House${r.note ? ` (${r.note})` : ''}`;
     }
     return 'Stamp earned (+1 point)';
   };
@@ -280,9 +282,21 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
     const count = Number(req.body?.count);
     if (!Number.isInteger(count) || count < 1 || count > 100) throw httpError(400, 'Enter a number of stamps from 1 to 100.');
     const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 120) : '';
-    addStamps(db, { userId: m.id, adminId: req.user.id, count, note });
+    const remove = req.body?.action === 'remove';
+    (remove ? removeStamps : addStamps)(db, { userId: m.id, adminId: req.user.id, count, note });
     const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
-    res.json({ added: count, member: { name: updated.name, memberCode: updated.member_code }, card: cardSummary(db, updated) });
+    res.json({
+      [remove ? 'removed' : 'added']: count,
+      member: { name: updated.name, memberCode: updated.member_code },
+      card: cardSummary(db, updated),
+    });
+  });
+
+  app.post('/api/admin/members/:code/undo-today', requireAdmin, (req, res) => {
+    const m = findMember(req.params.code);
+    undoTodayStamp(db, { userId: m.id, adminId: req.user.id });
+    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
+    res.json({ member: { name: updated.name, memberCode: updated.member_code }, card: cardSummary(db, updated) });
   });
 
   const registerUrl = (req) => `${req.protocol}://${req.get('host')}/s/${registerQr.getStampToken(db)}`;

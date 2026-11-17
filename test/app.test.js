@@ -323,6 +323,59 @@ test('admin can add any number of stamps; extras carry over past a full card', a
   assert.match((await c('/api/me/history.csv')).data, /2 stamps added by Engine House \(Missed stamp on Nov 12\)/);
 });
 
+test('admin can remove stamps (not below zero) and undo today\'s stamp', async () => {
+  const c = client();
+  await c('/api/auth/register', { method: 'POST', body: { name: 'Oops', email: 'oops@example.com', password: 'affogato2026' } });
+  const code = (await c('/api/me')).data.user.memberCode;
+  const owner = client();
+  await owner('/api/auth/login', { method: 'POST', body: { email: 'owner@example.com', password: 'ownerPass1234' } });
+  const barista = client();
+  await barista('/api/auth/login', { method: 'POST', body: { email: 'barista@example.com', password: 'baristaPass123' } });
+  const adjust = (who, body) => who(`/api/admin/members/${code}/stamps`, { method: 'POST', body });
+
+  // Nothing to remove yet.
+  assert.equal((await adjust(owner, { count: 1, action: 'remove' })).status, 400);
+
+  await adjust(owner, { count: 5 });
+  // Baristas can't remove.
+  assert.equal((await adjust(barista, { count: 1, action: 'remove' })).status, 403);
+  // Can't take more than the card has.
+  const tooMany = await adjust(owner, { count: 6, action: 'remove' });
+  assert.equal(tooMany.status, 400);
+  assert.match(tooMany.data.error, /only has 5 stamps/);
+
+  let r = await adjust(owner, { count: 2, action: 'remove', note: 'Added too many' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.removed, 2);
+  assert.equal(r.data.card.currentStamps, 3);
+  assert.equal(r.data.card.lifetimePoints, 3);
+  assert.equal(r.data.card.lifetimeVisits, 3);
+
+  // Undo today's stamp: nothing to undo yet.
+  assert.equal((await owner(`/api/admin/members/${code}/undo-today`, { method: 'POST' })).status, 400);
+  // Barista stamps them (say, by mistake)…
+  r = await barista(`/api/staff/members/${code}/visit`, { method: 'POST', body: {} });
+  assert.equal(r.data.card.currentStamps, 4);
+  assert.equal(r.data.card.todayKind, 'stamp');
+  // …baristas can't undo…
+  assert.equal((await barista(`/api/admin/members/${code}/undo-today`, { method: 'POST' })).status, 403);
+  // …the owner can, which frees today's stamp again.
+  r = await owner(`/api/admin/members/${code}/undo-today`, { method: 'POST' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.card.currentStamps, 3);
+  assert.equal(r.data.card.stampedToday, false);
+  assert.equal(r.data.card.lifetimePoints, 3);
+  r = await barista(`/api/staff/members/${code}/visit`, { method: 'POST', body: {} });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.card.currentStamps, 4);
+
+  // The customer's history shows the corrections.
+  const hist = (await c('/api/me/history')).data.history.filter((h) => h.kind === 'adjustment');
+  assert.ok(hist.some((h) => h.stamps === -2 && h.note === 'Added too many'));
+  assert.ok(hist.some((h) => h.stamps === -1 && h.note === "Today's stamp undone"));
+  assert.match((await c('/api/me/history.csv')).data, /2 stamps removed by Engine House \(Added too many\)/);
+});
+
 test('logout invalidates the session server-side', async () => {
   const c = client();
   await c('/api/auth/login', { method: 'POST', body: { email: 'ada@example.com', password: 'espresso12345' } });
