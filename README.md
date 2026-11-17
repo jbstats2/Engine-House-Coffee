@@ -4,7 +4,7 @@ A loyalty app with a digital stamp card. **Get one stamp per day you visit. Afte
 
 - **Secure sign-in.** Passwords are hashed with scrypt. Sessions are random tokens in `HttpOnly`, `SameSite=Strict` cookies (`Secure` in production), and only a hash of each token is stored. The app has CSRF protection, rate limits on sign-in, an account lockout after 5 failed attempts, a strict Content-Security-Policy and Helmet security headers. Changing your password signs out all other devices.
 - **Stamp card, one stamp per day.** The card has 8 slots. A customer earns at most **one stamp per calendar day**, however many drinks they buy, so a drip coffee and a latte earn the same. Each stamp is 1 point. Once 7 slots are filled, the coffee on the next visit (on a later day) is free and the card starts over. The free coffee is that day's card action, so it doesn't also earn a stamp.
-  - Days roll over at midnight in the shop's time zone (`SHOP_TIMEZONE`).
+  - A new day starts at **12:00am Eastern Time**. You can change this with `SHOP_TIMEZONE`.
   - The database also enforces the limit, so two baristas tapping at the same moment can't double-stamp a customer.
 - **Lifetime tracking.** Lifetime points, total visits and free coffees redeemed are kept forever, even as cards reset.
 - **Downloads:**
@@ -43,7 +43,7 @@ npm test
 | `DB_FILE`     | SQLite database path (put this on a persistent disk)                | `./data/loyalty.db`  |
 | `NODE_ENV`    | Set to `production` to turn on `Secure` cookies and HSTS            | —                    |
 | `TRUST_PROXY` | Set to `1` behind a load balancer or proxy that handles HTTPS       | —                    |
-| `SHOP_TIMEZONE` | Time zone used to decide when a new day starts, e.g. `America/Chicago` | the server's time zone |
+| `SHOP_TIMEZONE` | Time zone used to decide when a new day starts (at midnight) | `America/New_York` (Eastern) |
 
 Serve it over **HTTPS** in production. Browsers only allow installing the app, and only send secure cookies, over HTTPS.
 

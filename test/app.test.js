@@ -1,6 +1,6 @@
 'use strict';
 
-process.env.SHOP_TIMEZONE = 'America/Chicago';
+delete process.env.SHOP_TIMEZONE; // test the built-in default (Eastern)
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -149,7 +149,7 @@ test('stamp card over 9 days: 7 stamped days, 8th visit free, then a new card', 
     VALUES ('days@example.com', 'Days', 'x', 'DAYS-2222', ?)`).run(now);
   const userId = Number(lastInsertRowid);
   const DAY = 24 * 60 * 60 * 1000;
-  const start = Date.UTC(2026, 0, 5, 15); // 9am Chicago
+  const start = Date.UTC(2026, 0, 5, 14); // 9am Eastern
   const user = () => db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
 
   for (let d = 0; d < 7; d++) {
@@ -173,11 +173,13 @@ test('stamp card over 9 days: 7 stamped days, 8th visit free, then a new card', 
   assert.equal(card.freeRedeemed, 1);
 });
 
-test('days roll over at midnight in the shop time zone, not UTC', () => {
-  // 11:30pm and 12:30am Chicago time — different days for the shop,
-  // even though both are the same UTC date.
-  assert.equal(shopDay(Date.UTC(2026, 10, 17, 5, 30)), '2026-11-16');
-  assert.equal(shopDay(Date.UTC(2026, 10, 17, 6, 30)), '2026-11-17');
+test('a new day starts at 12am Eastern, not UTC', () => {
+  // Winter (EST, UTC-5): 11:59pm Nov 16 vs 12:00am Nov 17 Eastern.
+  assert.equal(shopDay(Date.UTC(2026, 10, 17, 4, 59)), '2026-11-16');
+  assert.equal(shopDay(Date.UTC(2026, 10, 17, 5, 0)), '2026-11-17');
+  // Summer (EDT, UTC-4): midnight moves with daylight saving time.
+  assert.equal(shopDay(Date.UTC(2026, 6, 4, 3, 59)), '2026-07-03');
+  assert.equal(shopDay(Date.UTC(2026, 6, 4, 4, 0)), '2026-07-04');
 });
 
 test('the database refuses a second stamp on the same day even if app checks are skipped', () => {
