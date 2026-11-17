@@ -102,6 +102,12 @@
 
   function renderAuth() {
     mount('tpl-auth');
+    if (sessionStorage.getItem(PENDING_KEY)) {
+      const note = document.createElement('p');
+      note.className = 'status free';
+      note.textContent = "☕ Sign in or create an account to collect today's stamp.";
+      $('.auth h1').after(note);
+    }
     const loginForm = $('#login-form');
     const regForm = $('#register-form');
 
@@ -139,10 +145,134 @@
     });
   }
 
+  // ---------- camera QR scanner (shared) ----------
+
+  let jsQRLoading = null;
+  function loadJsQR() {
+    if (window.jsQR) return Promise.resolve(window.jsQR);
+    jsQRLoading ||= new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = '/vendor/jsQR.js';
+      s.onload = () => resolve(window.jsQR);
+      s.onerror = reject;
+      document.head.append(s);
+    });
+    return jsQRLoading;
+  }
+
+  const canScan = () => !!navigator.mediaDevices?.getUserMedia;
+
+  /**
+   * Opens the camera inside `scannerEl` and calls onCode(text) with the first
+   * QR code found. Uses the built-in BarcodeDetector where available
+   * (Chrome/Android) and the jsQR library otherwise (iPhone Safari).
+   * Returns a stop() function.
+   */
+  async function startScanner(scannerEl, onCode) {
+    const video = scannerEl.querySelector('video');
+    let stream = null;
+    let raf = 0;
+    const stop = () => {
+      cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((t) => t.stop());
+      stream = null;
+      video.srcObject = null;
+      scannerEl.hidden = true;
+    };
+
+    let detect;
+    if ('BarcodeDetector' in window) {
+      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      detect = async () => (await detector.detect(video))[0]?.rawValue;
+    } else {
+      const jsQR = await loadJsQR();
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      detect = async () => {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        if (!w || !h) return null;
+        const scale = Math.min(1, 640 / Math.max(w, h));
+        canvas.width = Math.round(w * scale);
+        canvas.height = Math.round(h * scale);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        return jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' })?.data;
+      };
+    }
+
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    scannerEl.hidden = false;
+
+    const tick = async () => {
+      if (!stream) return;
+      try {
+        const value = await detect();
+        if (value) { stop(); onCode(value); return; }
+      } catch { /* frame not ready yet */ }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return stop;
+  }
+
+  // ---------- self-service stamp ----------
+
+  const PENDING_KEY = 'ehc_pending_stamp';
+
+  /** Pull the token out of a scanned register link ( …/s/<token> ). */
+  function tokenFromScan(text) {
+    try {
+      const url = new URL(text);
+      const m = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{10,100})$/);
+      if (m && url.origin === location.origin) return m[1];
+    } catch { /* not a URL */ }
+    return null;
+  }
+
+  // Opened from the phone's camera app via the sticker link: remember the
+  // token (survives signing in), then tidy the address bar.
+  {
+    const m = location.pathname.match(/^\/s\/([A-Za-z0-9_-]{10,100})$/);
+    if (m) {
+      sessionStorage.setItem(PENDING_KEY, m[1]);
+      history.replaceState(null, '', '/');
+    }
+  }
+
+  // ---------- free coffee voucher ----------
+
+  let voucherTimer = 0;
+  function showVoucher(name, voucher) {
+    closeVoucher();
+    if (!voucher || voucher.expiresAt <= Date.now()) return;
+    document.body.append(document.getElementById('tpl-voucher').content.cloneNode(true));
+    const el = document.querySelector('.voucher');
+    bind('voucherName', el).textContent = name;
+    const t = (ms) => new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    bind('voucherMeta', el).textContent = `Redeemed ${t(voucher.redeemedAt)} · valid until ${t(voucher.expiresAt)}`;
+    const clock = bind('voucherClock', el);
+    const tickClock = () => {
+      if (Date.now() >= voucher.expiresAt) { closeVoucher(); return; }
+      // A live clock makes a screenshot easy for the barista to spot.
+      clock.textContent = new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    };
+    tickClock();
+    voucherTimer = setInterval(tickClock, 1000);
+    el.querySelector('[data-action="close-voucher"]').addEventListener('click', closeVoucher);
+  }
+  function closeVoucher() {
+    clearInterval(voucherTimer);
+    document.querySelector('.voucher')?.remove();
+  }
+
   // ---------- customer view ----------
 
   async function renderCustomer(me) {
     mount('tpl-customer');
+    let current = me;
     fillCustomer(me);
     bind('qr').src = '/api/me/qr.svg';
     bind('code').textContent = me.user.memberCode;
@@ -162,26 +292,69 @@
       });
     });
 
+    async function collectStamp(token) {
+      try {
+        const data = await api('/api/stamp', { method: 'POST', body: { token } });
+        current = { ...current, card: data.card };
+        fillCustomer(current);
+        loadHistory();
+        if (data.result.kind === 'free_coffee') {
+          showVoucher(current.user.name, data.card.voucher);
+        } else {
+          const left = data.card.visitsUntilFree;
+          toast(left === 0 ? '🎉 Stamp collected! Your next visit is FREE.' : `✅ Stamp collected! ${plural(left, 'more visit')} to a free coffee.`, 'ok');
+        }
+      } catch (err) {
+        if (err.status === 409) toast("You've already collected today's stamp — see you tomorrow!", 'err');
+        else toast(err.message, 'err');
+        if (err.status === 401) route();
+      }
+    }
+
+    // Scan the register sticker from inside the app.
+    const scanBtn = $('[data-action="scan-register"]');
+    const scannerEl = $('.scanner');
+    let stopScan = null;
+    if (!canScan()) scanBtn.hidden = true;
+    scanBtn.addEventListener('click', async () => {
+      scanBtn.hidden = true;
+      try {
+        stopScan = await startScanner(scannerEl, (text) => {
+          scanBtn.hidden = false;
+          const token = tokenFromScan(text);
+          if (token) collectStamp(token);
+          else toast("That's not the Engine House register code. Look for the sticker by the register.", 'err');
+        });
+      } catch {
+        scanBtn.hidden = false;
+        toast("Couldn't open the camera. Allow camera access, or scan the sticker with your phone's camera app.", 'err');
+      }
+    });
+    $('[data-action="stop-scan"]').addEventListener('click', () => { stopScan?.(); scanBtn.hidden = false; });
+    $('[data-action="show-voucher"]').addEventListener('click', () => showVoucher(current.user.name, current.card.voucher));
+
+    // Arrived via the sticker link (phone camera app).
+    const pending = sessionStorage.getItem(PENDING_KEY);
+    if (pending) {
+      sessionStorage.removeItem(PENDING_KEY);
+      collectStamp(pending);
+    }
+
     await loadHistory();
 
-    // Refresh the card when the app comes back to the foreground — e.g. right
-    // after the barista stamps it.
-    let lastStamps = me.card.currentStamps + me.card.lifetimeVisits * 1000;
+    // Keep the card fresh when the app comes back to the foreground.
     const refresh = async () => {
       if (document.visibilityState !== 'visible' || !bind('stamps')) return;
       try {
-        const fresh = await api('/api/me');
-        const key = fresh.card.currentStamps + fresh.card.lifetimeVisits * 1000;
-        if (key !== lastStamps) {
-          lastStamps = key;
-          fillCustomer(fresh);
-          loadHistory();
-        }
+        current = await api('/api/me');
+        fillCustomer(current);
       } catch (err) { if (err.status === 401) route(); }
     };
+    document.removeEventListener('visibilitychange', window.__ehcRefresh || (() => {}));
+    window.__ehcRefresh = refresh;
     document.addEventListener('visibilitychange', refresh);
     clearInterval(window.__ehcPoll);
-    window.__ehcPoll = setInterval(refresh, 15000);
+    window.__ehcPoll = setInterval(refresh, 30000);
   }
 
   function fillCustomer(me) {
@@ -195,6 +368,16 @@
     bind('lifetimePoints').textContent = card.lifetimePoints.toLocaleString();
     bind('lifetimeVisits').textContent = card.lifetimeVisits.toLocaleString();
     bind('freeRedeemed').textContent = card.freeRedeemed.toLocaleString();
+
+    const scanBtn = $('[data-action="scan-register"]');
+    if (scanBtn && canScan()) {
+      scanBtn.disabled = card.stampedToday;
+      scanBtn.textContent = card.stampedToday
+        ? "✅ Today's stamp collected"
+        : card.nextIsFree ? '📷 Scan to get your FREE coffee' : '📷 Scan the register code';
+    }
+    const vBtn = $('[data-action="show-voucher"]');
+    if (vBtn) vBtn.hidden = !(card.voucher && card.voucher.expiresAt > Date.now());
   }
 
   async function loadHistory() {
@@ -205,7 +388,7 @@
     if (!history.length) {
       const li = document.createElement('li');
       li.className = 'muted';
-      li.textContent = 'No visits yet — your first stamp is waiting!';
+      li.textContent = 'No visits yet — scan the register code on your next visit!';
       list.append(li);
       return;
     }
@@ -229,6 +412,30 @@
     bind('name').textContent = me.user.name;
     wireCommon();
 
+    // Someone opened the sticker link while signed in as staff.
+    if (sessionStorage.getItem(PENDING_KEY)) {
+      sessionStorage.removeItem(PENDING_KEY);
+      toast("That's the register code ✓ — customers scan it from their own account.", 'ok');
+    }
+
+    // Register sticker
+    const loadSign = () => { bind('registerQr').src = `/api/staff/register-qr.svg?t=${Date.now()}`; };
+    loadSign();
+    $('[data-action="print-sign"]').addEventListener('click', () => {
+      document.body.classList.add('printing-sign');
+      window.print();
+    });
+    window.addEventListener('afterprint', () => document.body.classList.remove('printing-sign'));
+    $('[data-action="rotate-sign"]').addEventListener('click', async () => {
+      if (!confirm('Make a new register code? The sticker currently at the register will stop working right away.')) return;
+      try {
+        await api('/api/staff/register-qr/rotate', { method: 'POST' });
+        loadSign();
+        toast('New code ready — print it and replace the old sticker.', 'ok');
+      } catch (err) { toast(err.message, 'err'); }
+    });
+
+    // Manual stamp (backup)
     const lookupForm = $('#lookup-form');
     const stampForm = $('#stamp-form');
     const lookupErr = bind('lookupError');
@@ -291,65 +498,39 @@
             ? "FREE coffee redeemed — don't charge for one drink!"
             : "Today's stamp added", 'ok');
         } catch (err) {
-          // e.g. another barista stamped them a moment ago — show the latest card.
+          // e.g. the customer scanned the sticker a moment ago — show the latest card.
           if (err.status === 409) lookup(currentCode);
           throw err;
         }
       });
     });
 
-    // QR scanning via the built-in BarcodeDetector (Chrome/Android, Safari 17+ behind flag).
-    if ('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia) {
+    if (canScan()) {
       const scanBtn = $('[data-action="scan"]');
-      const scanner = $('.scanner');
-      const video = $('.scanner video');
-      let stream = null;
-      let raf = 0;
+      const scannerEl = $('.scanner');
+      let stopScan = null;
       scanBtn.hidden = false;
-
-      const stop = () => {
-        cancelAnimationFrame(raf);
-        stream?.getTracks().forEach((t) => t.stop());
-        stream = null;
-        scanner.hidden = true;
-        scanBtn.hidden = false;
-      };
-
       scanBtn.addEventListener('click', async () => {
+        scanBtn.hidden = true;
         try {
-          const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-          video.srcObject = stream;
-          await video.play();
-          scanner.hidden = false;
-          scanBtn.hidden = true;
-          const tick = async () => {
-            if (!stream) return;
-            try {
-              const codes = await detector.detect(video);
-              if (codes.length) {
-                const value = codes[0].rawValue;
-                stop();
-                lookupForm.code.value = value;
-                lookup(value);
-                return;
-              }
-            } catch { /* frame not ready */ }
-            raf = requestAnimationFrame(tick);
-          };
-          tick();
+          stopScan = await startScanner(scannerEl, (value) => {
+            scanBtn.hidden = false;
+            lookupForm.code.value = value;
+            lookup(value);
+          });
         } catch {
-          stop();
+          scanBtn.hidden = false;
           toast('Camera unavailable — type the member code instead.', 'err');
         }
       });
-      $('[data-action="stop-scan"]').addEventListener('click', stop);
+      $('[data-action="stop-scan"]').addEventListener('click', () => { stopScan?.(); scanBtn.hidden = false; });
     }
   }
 
   function wireCommon() {
     app.querySelectorAll('[data-action="logout"]').forEach((b) => b.addEventListener('click', async () => {
       clearInterval(window.__ehcPoll);
+      closeVoucher();
       await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
       renderAuth();
     }));

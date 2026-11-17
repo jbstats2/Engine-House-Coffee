@@ -10,7 +10,10 @@ A loyalty app with a digital stamp card. **Get one stamp per day you visit. Afte
 - **Downloads:**
   - **Install the app.** It's a Progressive Web App. Tap **⬇ Install app** in Chrome, Edge or Android, or use **Share → Add to Home Screen** on iPhone. It opens full-screen with its own icon.
   - **Download your history.** Customers can download their full loyalty statement as a CSV file.
-- **Barista station.** Staff accounts get a different screen. They scan the customer's QR code with the camera (on supported browsers) or type the member code, then tap **Add today's stamp**. When a card is full, the button changes to **Redeem FREE coffee** so staff know not to charge. Once a customer has been stamped that day, the button greys out. Customers can't add stamps to their own cards.
+- **Self-service stamps (no staff needed).** Print the **register QR sticker** from the staff screen and stick it by the register. Customers scan it with the app's **Scan the register code** button (or their phone camera) to collect their stamp, once per day.
+  - When their card is full, the scan turns their phone into a live **FREE COFFEE voucher** with a ticking clock, so screenshots are easy to spot. The barista just doesn't charge for one drink.
+  - If a photo of the sticker gets shared, tap **Replace sticker** on the staff screen. The old code stops working immediately; print the new one.
+- **Barista station (backup).** Staff accounts get a different screen. They scan the customer's QR code with the camera (on supported browsers) or type the member code, then tap **Add today's stamp**. This is for customers who can't scan. When a card is full, the button changes to **Redeem FREE coffee** so staff know not to charge. Once a customer has been stamped that day, the button greys out. Customers can't add stamps to their own cards.
 
 ## Run it
 

@@ -43,6 +43,11 @@ function openDb(file) {
       created_at  INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 
   // Upgrade databases created before the one-stamp-per-day rule.

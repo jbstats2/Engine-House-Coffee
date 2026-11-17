@@ -161,3 +161,55 @@ details summary { cursor: pointer; font-weight: 600; color: var(--roast); }
   background: #fff; border-radius: var(--radius); padding: 16px 18px; box-shadow: 0 10px 40px rgba(0,0,0,.25);
 }
 .sheet ol { padding-left: 20px; margin: 8px 0 12px; }
+
+/* ---- Self-scan ---- */
+.btn-big { padding: 15px 18px; font-size: 1.05rem; margin-top: 14px; }
+.greeting .scanner { margin-top: 12px; }
+.member details summary, details.replace summary { margin: 2px 0; }
+.member details[open] summary { margin-bottom: 8px; }
+details.replace { margin-top: 12px; }
+details.replace .btn { border-color: var(--err); color: var(--err); }
+
+/* ---- Register sticker ---- */
+.print-sign {
+  margin: 14px 0 4px; padding: 18px; text-align: center;
+  border: 3px solid var(--espresso); border-radius: 18px; background: #fff;
+}
+.sign-brand { margin: 0; font-family: Georgia, serif; font-size: 1.05rem; color: var(--muted); letter-spacing: .04em; }
+.sign-title { margin: 4px 0 6px; font-family: Georgia, serif; font-size: 1.5rem; font-weight: 700; color: var(--espresso); }
+.qr-large { width: 260px; height: 260px; }
+.sign-foot { margin: 6px 0 0; font-size: .9rem; color: var(--roast); }
+
+@media print {
+  body.printing-sign { background: #fff; }
+  body.printing-sign > *:not(main),
+  body.printing-sign main > *:not(:first-child),
+  body.printing-sign main > :first-child > *:not(.print-sign) { display: none !important; }
+  body.printing-sign main { padding: 0; max-width: none; }
+  body.printing-sign main > :first-child { box-shadow: none; padding: 0; }
+  body.printing-sign .print-sign { margin: 0 auto; width: 4in; border-width: 4px; break-inside: avoid; }
+  body.printing-sign .qr-large { width: 3in; height: 3in; }
+}
+
+/* ---- Free coffee voucher ---- */
+.voucher {
+  position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 20px;
+  background: radial-gradient(circle at 50% 30%, #d9a441, var(--brass) 45%, var(--roast));
+  animation: voucher-bg 3s ease-in-out infinite alternate;
+}
+.voucher-inner {
+  width: 100%; max-width: 380px; background: #fff; border-radius: 22px; padding: 26px 22px; text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35);
+}
+.voucher-cup { position: relative; font-size: 4rem; line-height: 1; margin-top: 18px; animation: bob 1.6s ease-in-out infinite; }
+.steam { position: absolute; top: -18px; width: 6px; height: 22px; border-radius: 6px; background: rgba(184,134,43,.55); animation: steam 1.8s ease-out infinite; }
+.steam.s1 { left: calc(50% - 16px); } .steam.s2 { left: calc(50% - 3px); animation-delay: .4s; } .steam.s3 { left: calc(50% + 10px); animation-delay: .8s; }
+.voucher-kicker { margin: 10px 0 0; text-transform: uppercase; letter-spacing: .14em; font-size: .75rem; color: var(--muted); }
+.voucher-title { margin: 4px 0; font-size: 2.6rem; color: var(--brass); letter-spacing: .04em; }
+.voucher-name { margin: 0; font-weight: 700; font-size: 1.2rem; }
+.voucher-clock { margin: 12px 0 2px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 2rem; font-weight: 700; color: var(--espresso); }
+.voucher-meta { margin: 0; font-size: .85rem; color: var(--muted); }
+.voucher-help { margin: 14px 0 4px; font-weight: 600; color: var(--roast); }
+@keyframes bob { 50% { transform: translateY(-6px) rotate(-4deg); } }
+@keyframes steam { 0% { opacity: 0; transform: translateY(8px) scaleY(.6); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-16px) scaleY(1.1); } }
+@keyframes voucher-bg { to { filter: hue-rotate(-12deg) brightness(1.06); } }

@@ -1,6 +1,6 @@
 'use strict';
 
-const { CARD_SIZE, SHOP_TIMEZONE } = require('./config');
+const { CARD_SIZE, SHOP_TIMEZONE, VOUCHER_MS } = require('./config');
 
 const PAID_STAMPS_FOR_FREE = CARD_SIZE - 1; // 7 stamped days, the 8th visit's coffee is free
 
@@ -58,6 +58,11 @@ function recordVisit(db, { userId, staffId, now = Date.now() }) {
 }
 
 function cardSummary(db, user, now = Date.now()) {
+  // A free coffee redeemed in the last 30 minutes: the phone shows a live voucher.
+  const lastFree = db.prepare(`
+    SELECT created_at FROM transactions
+    WHERE user_id = ? AND kind = 'free_coffee' AND created_at > ? ORDER BY id DESC LIMIT 1
+  `).get(user.id, now - VOUCHER_MS);
   return {
     cardSize: CARD_SIZE,
     currentStamps: user.current_stamps,
@@ -67,6 +72,7 @@ function cardSummary(db, user, now = Date.now()) {
     lifetimePoints: user.lifetime_points,
     lifetimeVisits: user.lifetime_coffees,
     freeRedeemed: user.free_redeemed,
+    voucher: lastFree ? { redeemedAt: lastFree.created_at, expiresAt: lastFree.created_at + VOUCHER_MS } : null,
   };
 }
 

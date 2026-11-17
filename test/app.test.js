@@ -188,6 +188,74 @@ test('the database refuses a second stamp on the same day even if app checks are
   assert.throws(() => db.prepare("INSERT INTO transactions (user_id, kind, day, created_at) VALUES (?, 'stamp', ?, 0)").run(u.id, day), /UNIQUE/);
 });
 
+test('self-scan: customer scans the register QR for one stamp a day; sticker can be replaced', async () => {
+  const staff = client();
+  await staff('/api/auth/login', { method: 'POST', body: { email: 'barista@example.com', password: 'baristaPass123' } });
+  const { data: { url } } = await staff('/api/staff/register-qr');
+  assert.match(url, /\/s\/[A-Za-z0-9_-]{20,}$/);
+  const token = url.split('/s/')[1];
+  const svg = await staff('/api/staff/register-qr.svg');
+  assert.match(svg.data, /<svg/);
+
+  // The sticker link opens the app.
+  const page = await fetch(`${base}/s/${token}`);
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /<!DOCTYPE html>/);
+
+  const c = client();
+  await c('/api/auth/register', { method: 'POST', body: { name: 'Scan Fan', email: 'scan@example.com', password: 'coldbrew2026' } });
+
+  // Must be signed in.
+  const anon = await client()('/api/stamp', { method: 'POST', body: { token } });
+  assert.equal(anon.status, 401);
+  // Wrong code is refused.
+  const bad = await c('/api/stamp', { method: 'POST', body: { token: 'not-the-real-code' } });
+  assert.equal(bad.status, 400);
+  // Staff can't stamp themselves.
+  assert.equal((await staff('/api/stamp', { method: 'POST', body: { token } })).status, 403);
+
+  const ok = await c('/api/stamp', { method: 'POST', body: { token } });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(ok.data.result, { kind: 'stamp', currentStamps: 1 });
+  assert.equal(ok.data.card.stampedToday, true);
+  assert.equal(ok.data.card.voucher, null);
+
+  // Second scan the same day is refused.
+  const again = await c('/api/stamp', { method: 'POST', body: { token } });
+  assert.equal(again.status, 409);
+
+  // Replacing the sticker invalidates the old code.
+  const { data: rotated } = await staff('/api/staff/register-qr/rotate', { method: 'POST' });
+  assert.notEqual(rotated.url, url);
+  const c2 = client();
+  await c2('/api/auth/register', { method: 'POST', body: { name: 'Late', email: 'late@example.com', password: 'mocha123456' } });
+  assert.equal((await c2('/api/stamp', { method: 'POST', body: { token } })).status, 400);
+  const fresh = await c2('/api/stamp', { method: 'POST', body: { token: rotated.url.split('/s/')[1] } });
+  assert.equal(fresh.status, 200);
+
+  // Customers can't fetch or replace the sticker.
+  assert.equal((await c('/api/staff/register-qr')).status, 403);
+  assert.equal((await c('/api/staff/register-qr/rotate', { method: 'POST' })).status, 403);
+});
+
+test('self-scan with a full card redeems the free coffee and returns a voucher', async () => {
+  const staff = client();
+  await staff('/api/auth/login', { method: 'POST', body: { email: 'barista@example.com', password: 'baristaPass123' } });
+  const token = (await staff('/api/staff/register-qr')).data.url.split('/s/')[1];
+
+  const c = client();
+  await c('/api/auth/register', { method: 'POST', body: { name: 'Full Card', email: 'full@example.com', password: 'cortado12345' } });
+  db.prepare("UPDATE users SET current_stamps = 7 WHERE email = 'full@example.com'").run();
+
+  const r = await c('/api/stamp', { method: 'POST', body: { token } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data.result, { kind: 'free_coffee', currentStamps: 0 });
+  assert.ok(r.data.card.voucher);
+  assert.equal(r.data.card.voucher.expiresAt - r.data.card.voucher.redeemedAt, 30 * 60 * 1000);
+  // Voucher is still visible on reopening the app.
+  assert.ok((await c('/api/me')).data.card.voucher);
+});
+
 test('logout invalidates the session server-side', async () => {
   const c = client();
   await c('/api/auth/login', { method: 'POST', body: { email: 'ada@example.com', password: 'espresso12345' } });

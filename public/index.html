@@ -69,6 +69,13 @@
     <section class="panel greeting">
       <h1>Hi, <span data-bind="name"></span></h1>
       <p class="status" data-bind="status"></p>
+      <button class="btn btn-primary btn-block btn-big" data-action="scan-register">📷 Scan the register code</button>
+      <button class="btn btn-block" data-action="show-voucher" hidden>☕ Show my free coffee voucher</button>
+      <div class="scanner" hidden>
+        <video playsinline muted></video>
+        <p class="muted small">Point your camera at the Engine House QR code by the register.</p>
+        <button class="btn btn-small" data-action="stop-scan">Cancel</button>
+      </div>
     </section>
 
     <section class="panel card-panel">
@@ -83,10 +90,12 @@
     </section>
 
     <section class="panel member">
-      <h2>Your member card</h2>
-      <p class="muted">Show this to your barista to collect today's stamp.</p>
-      <img class="qr" data-bind="qr" alt="Your member QR code" width="200" height="200">
-      <p class="member-code" data-bind="code"></p>
+      <details>
+        <summary>Can't scan? Show your member code</summary>
+        <p class="muted">Your barista can add today's stamp with this instead.</p>
+        <img class="qr" data-bind="qr" alt="Your member QR code" width="200" height="200">
+        <p class="member-code" data-bind="code"></p>
+      </details>
     </section>
 
     <section class="panel">
@@ -123,8 +132,25 @@
 
   <template id="tpl-staff">
     <section class="panel">
-      <h1>Barista station</h1>
-      <p class="muted">Signed in as <span data-bind="name"></span>. Scan a member's QR code or type their code.</p>
+      <h1>Register QR sticker</h1>
+      <p class="muted">Signed in as <span data-bind="name"></span>. Customers scan this code with the Engine House app to collect their stamp — one per day. When their card is full, their phone shows a live <strong>FREE COFFEE</strong> voucher: don't charge for one drink.</p>
+      <div class="print-sign">
+        <p class="sign-brand">Engine House Coffee</p>
+        <p class="sign-title">Scan for your daily stamp</p>
+        <img class="qr qr-large" data-bind="registerQr" alt="Register QR code" width="260" height="260">
+        <p class="sign-foot">Scan with your phone camera or the Engine House app<br><strong>One stamp a day · 8th visit is free</strong></p>
+      </div>
+      <button class="btn btn-primary btn-block" data-action="print-sign">🖨 Print sticker</button>
+      <details class="replace">
+        <summary>Replace sticker</summary>
+        <p class="muted small">Use this if a photo of the sticker gets shared. The old sticker stops working immediately, so print and put up the new one right away.</p>
+        <button class="btn btn-block" data-action="rotate-sign">Make a new code (old sticker stops working)</button>
+      </details>
+    </section>
+
+    <section class="panel">
+      <h2>Manual stamp (backup)</h2>
+      <p class="muted">For customers who can't scan. Scan their member code or type it in.</p>
 
       <div class="scanner" hidden>
         <video playsinline muted></video>
@@ -158,6 +184,24 @@
     <section class="panel">
       <button class="btn btn-ghost btn-block" data-action="logout">Sign out</button>
     </section>
+  </template>
+
+  <template id="tpl-voucher">
+    <div class="voucher" role="dialog" aria-modal="true" aria-label="Free coffee voucher">
+      <div class="voucher-inner">
+        <div class="voucher-cup" aria-hidden="true">
+          <span class="steam s1"></span><span class="steam s2"></span><span class="steam s3"></span>
+          ☕
+        </div>
+        <p class="voucher-kicker">Engine House Coffee</p>
+        <h1 class="voucher-title">FREE COFFEE</h1>
+        <p class="voucher-name" data-bind="voucherName"></p>
+        <p class="voucher-clock" data-bind="voucherClock"></p>
+        <p class="voucher-meta" data-bind="voucherMeta"></p>
+        <p class="voucher-help">Show this screen to your barista.</p>
+        <button class="btn btn-block" data-action="close-voucher">Done</button>
+      </div>
+    </div>
   </template>
 
   <template id="tpl-ios-install">

@@ -9,6 +9,7 @@ const QRCode = require('qrcode');
 const config = require('./config');
 const sec = require('./security');
 const { recordVisit, cardSummary } = require('./loyalty');
+const registerQr = require('./registerQr');
 
 function parseCookies(header) {
   const out = {};
@@ -236,7 +237,47 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
       .send(lines.map((l) => l.map(csvCell).join(',')).join('\r\n'));
   });
 
+  // ---- Self-service stamp (customer scans the register QR) -------------
+
+  const stampLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 30,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: 'Too many scans. Please wait a few minutes and try again.' },
+  });
+
+  app.post('/api/stamp', requireUser, stampLimiter, (req, res) => {
+    if (req.user.role !== 'customer') throw httpError(403, 'Staff accounts can\'t collect stamps.');
+    if (!registerQr.isValidStampToken(db, req.body?.token)) {
+      throw httpError(400, 'That QR code isn\'t valid. Scan the Engine House code at the register.');
+    }
+    const result = recordVisit(db, { userId: req.user.id, staffId: null });
+    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    res.json({ result, card: cardSummary(db, updated) });
+  });
+
   // ---- Staff --------------------------------------------------------------
+
+  const registerUrl = (req) => `${req.protocol}://${req.get('host')}/s/${registerQr.getStampToken(db)}`;
+
+  app.get('/api/staff/register-qr', requireStaff, (req, res) => {
+    res.set('Cache-Control', 'no-store').json({ url: registerUrl(req) });
+  });
+
+  app.get('/api/staff/register-qr.svg', requireStaff, async (req, res, next) => {
+    try {
+      const svg = await QRCode.toString(registerUrl(req), {
+        type: 'svg', margin: 1, errorCorrectionLevel: 'Q', color: { dark: '#2b1a12', light: '#ffffff' },
+      });
+      res.set('Cache-Control', 'no-store').type('image/svg+xml').send(svg);
+    } catch (err) { next(err); }
+  });
+
+  app.post('/api/staff/register-qr/rotate', requireStaff, (req, res) => {
+    registerQr.rotateStampToken(db);
+    res.json({ url: registerUrl(req) });
+  });
 
   function findMember(codeParam) {
     const code = sec.normalizeMemberCode(codeParam);
@@ -267,6 +308,14 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
   // ---- Static PWA ---------------------------------------------------------
 
   const pub = path.join(__dirname, '..', 'public');
+  // Pure-JS QR reader for browsers without BarcodeDetector (iPhone Safari).
+  app.get('/vendor/jsQR.js', (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=86400').sendFile(require.resolve('jsqr/dist/jsQR.js'));
+  });
+  // The register sticker's link: open the app, which then collects the stamp.
+  app.get('/s/:token', (_req, res) => {
+    res.set('Cache-Control', 'no-store').sendFile(path.join(pub, 'index.html'));
+  });
   app.get('/sw.js', (_req, res) => {
     res.set('Cache-Control', 'no-cache').sendFile(path.join(pub, 'sw.js'));
   });
