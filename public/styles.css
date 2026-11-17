@@ -213,3 +213,18 @@ details.replace .btn { border-color: var(--err); color: var(--err); }
 @keyframes bob { 50% { transform: translateY(-6px) rotate(-4deg); } }
 @keyframes steam { 0% { opacity: 0; transform: translateY(8px) scaleY(.6); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateY(-16px) scaleY(1.1); } }
 @keyframes voucher-bg { to { filter: hue-rotate(-12deg) brightness(1.06); } }
+.sign-links { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
+
+/* ---- Standalone sticker page (/sticker) ---- */
+body.sticker-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--paper); }
+body.sticker-page main { width: 100%; max-width: 520px; padding: 0; display: block; }
+body.sticker-page .print-sign { width: 100%; margin: 0; padding: 24px 16px; }
+body.sticker-page .qr-large { width: 100%; max-width: 420px; height: auto; aspect-ratio: 1; }
+body.sticker-page .sign-title { font-size: clamp(1.5rem, 5vw, 2.2rem); }
+.sticker-actions { display: flex; gap: 10px; justify-content: center; margin-top: 16px; flex-wrap: wrap; }
+@media print {
+  body.sticker-page { background: #fff; min-height: 0; display: block; padding: 0; }
+  body.sticker-page .sticker-actions { display: none; }
+  body.sticker-page .print-sign { width: 4in; margin: 0 auto; border-width: 4px; }
+  body.sticker-page .qr-large { width: 3in; height: 3in; }
+}

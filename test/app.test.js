@@ -233,7 +233,21 @@ test('self-scan: customer scans the register QR for one stamp a day; sticker can
   const fresh = await c2('/api/stamp', { method: 'POST', body: { token: rotated.url.split('/s/')[1] } });
   assert.equal(fresh.status, 200);
 
+  // Printable sticker page and PNG for staff.
+  const sticker = await staff('/sticker');
+  assert.equal(sticker.status, 200);
+  assert.match(sticker.data, /Scan for your daily stamp/);
+  const png = await staff('/api/staff/register-qr.png');
+  assert.equal(png.headers.get('content-type'), 'image/png');
+  assert.match(png.headers.get('content-disposition'), /attachment/);
+
+  // App code is always revalidated, so updates can't leave stale JS running.
+  assert.equal((await fetch(`${base}/app.js`)).headers.get('cache-control'), 'no-cache');
+  assert.match((await fetch(`${base}/icons/icon.svg`)).headers.get('cache-control'), /max-age=86400/);
+
   // Customers can't fetch or replace the sticker.
+  assert.equal((await fetch(`${base}/sticker`, { redirect: 'manual' })).status, 302);
+  assert.equal((await c('/api/staff/register-qr.png')).status, 403);
   assert.equal((await c('/api/staff/register-qr')).status, 403);
   assert.equal((await c('/api/staff/register-qr/rotate', { method: 'POST' })).status, 403);
 });

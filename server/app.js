@@ -270,7 +270,19 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
       const svg = await QRCode.toString(registerUrl(req), {
         type: 'svg', margin: 1, errorCorrectionLevel: 'Q', color: { dark: '#2b1a12', light: '#ffffff' },
       });
-      res.set('Cache-Control', 'no-store').type('image/svg+xml').send(svg);
+      res.set('Cache-Control', 'no-store').type('image/svg+xml');
+      if (req.query.download) res.attachment('engine-house-register-qr.svg');
+      res.send(svg);
+    } catch (err) { next(err); }
+  });
+
+  // High-resolution PNG for print shops, signs and screens.
+  app.get('/api/staff/register-qr.png', requireStaff, async (req, res, next) => {
+    try {
+      const png = await QRCode.toBuffer(registerUrl(req), {
+        type: 'png', width: 1200, margin: 2, errorCorrectionLevel: 'Q', color: { dark: '#2b1a12', light: '#ffffff' },
+      });
+      res.set('Cache-Control', 'no-store').attachment('engine-house-register-qr.png').type('image/png').send(png);
     } catch (err) { next(err); }
   });
 
@@ -319,7 +331,24 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
   app.get('/sw.js', (_req, res) => {
     res.set('Cache-Control', 'no-cache').sendFile(path.join(pub, 'sw.js'));
   });
-  app.use(express.static(pub, { index: 'index.html', maxAge: '1h' }));
+  // Standalone sticker page: opens in the regular browser (printing is often
+  // blocked inside installed home-screen apps), and works as an on-screen
+  // display on a tablet at the register.
+  app.get('/sticker.html', (_req, res) => res.redirect('/sticker'));
+  app.get('/sticker', (req, res) => {
+    if (req.user?.role !== 'staff') return res.redirect('/');
+    res.set('Cache-Control', 'no-store').sendFile(path.join(pub, 'sticker.html'));
+  });
+
+  // App code must never be served stale: browsers revalidate on every load
+  // (cheap, via ETag) so an update can't leave old JS running against new HTML.
+  // Icons rarely change and can be cached.
+  app.use(express.static(pub, {
+    index: 'index.html',
+    setHeaders(res, file) {
+      res.setHeader('Cache-Control', /[\\/]icons[\\/]/.test(file) ? 'public, max-age=86400' : 'no-cache');
+    },
+  }));
 
   app.use('/api', (_req, _res, next) => next(httpError(404, 'Not found.')));
 

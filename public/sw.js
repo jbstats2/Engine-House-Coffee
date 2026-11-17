@@ -3,7 +3,7 @@
 // Caches the app shell so the installed app opens instantly (and offline).
 // API calls always go to the network — loyalty data is never cached here.
 
-const CACHE = 'ehc-shell-v3';
+const CACHE = 'ehc-shell-v4';
 const SHELL = [
   '/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest',
   '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png',
@@ -23,12 +23,14 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin ||
+      url.pathname.startsWith('/api/') || url.pathname === '/sticker') {
     return;
   }
   // Network first so updates show up right away; fall back to cache offline.
   event.respondWith(
-    fetch(event.request)
+    // 'no-cache' = always check with the server, never use a stale HTTP-cached copy.
+    fetch(event.request, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();
