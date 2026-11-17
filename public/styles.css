@@ -282,3 +282,6 @@ main:not([data-tab="members"]) [data-view="members"] { display: none !important;
 .member-row .m-dots i.on { background: var(--crema); }
 .member-row .m-dots i.free { background: var(--brass); }
 .members .empty { color: var(--muted); padding: 14px 4px; }
+
+/* ---- Confetti ---- */
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 60; }

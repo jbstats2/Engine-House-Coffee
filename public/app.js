@@ -279,6 +279,80 @@
     }
   }
 
+  // ---------- confetti ----------
+
+  const CONFETTI_COLORS = ['#c8955c', '#b8862b', '#f3e3cc', '#4a2c1d', '#e8b04b', '#e2725b', '#6fb38a', '#f6d365'];
+
+  /**
+   * Confetti that falls from the top of the screen. Drawn on a temporary
+   * full-screen canvas that ignores taps and removes itself when done.
+   * `big` is for free coffees. Respects the phone's "reduce motion" setting.
+   */
+  function confetti({ big = false } = {}) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const canvas = document.createElement('canvas');
+    canvas.className = 'confetti';
+    canvas.setAttribute('aria-hidden', 'true');
+    document.body.append(canvas);
+    const ctx = canvas.getContext('2d');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+
+    const count = reduce ? 40 : big ? 260 : 150;
+    const rand = (a, b) => a + Math.random() * (b - a);
+    const pieces = Array.from({ length: count }, () => ({
+      x: rand(0, W),
+      y: rand(-H * 0.6, -10),                 // start above the screen, staggered
+      w: rand(6, 11),
+      h: rand(8, 16),
+      vy: rand(2.2, 4.6) * (reduce ? 0.6 : 1),
+      vx: rand(-1.2, 1.2),
+      sway: rand(0.6, 2.2),
+      phase: rand(0, Math.PI * 2),
+      spin: rand(-0.2, 0.2),
+      angle: rand(0, Math.PI * 2),
+      color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+      round: Math.random() < 0.25,
+    }));
+
+    const start = performance.now();
+    const duration = reduce ? 1600 : big ? 5200 : 4000;
+    const frame = (t) => {
+      const elapsed = t - start;
+      ctx.clearRect(0, 0, W, H);
+      const fade = Math.min(1, Math.max(0, (duration - elapsed) / 600));
+      let alive = 0;
+      for (const p of pieces) {
+        p.y += p.vy;
+        p.x += p.vx + Math.sin(p.phase + elapsed / 300) * p.sway * 0.3;
+        p.angle += p.spin;
+        if (p.y > H + 20) continue;
+        alive++;
+        ctx.save();
+        ctx.globalAlpha = fade;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle);
+        ctx.fillStyle = p.color;
+        if (p.round) {
+          ctx.beginPath();
+          ctx.arc(0, 0, p.w / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Flip the piece's height over time so it looks like it's tumbling.
+          ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.cos(p.phase + elapsed / 180));
+        }
+        ctx.restore();
+      }
+      if (elapsed < duration && alive) requestAnimationFrame(frame);
+      else canvas.remove();
+    };
+    requestAnimationFrame(frame);
+  }
+
   // ---------- free coffee voucher ----------
 
   let voucherTimer = 0;
@@ -310,6 +384,7 @@
   async function renderCustomer(me) {
     mount('tpl-customer');
     let current = me;
+    let lastVisits = me.card.lifetimeVisits; // to notice stamps added elsewhere
     fillCustomer(me);
     bind('qr').src = '/api/me/qr.svg';
     bind('code').textContent = me.user.memberCode;
@@ -333,8 +408,10 @@
       try {
         const data = await api('/api/stamp', { method: 'POST', body: { token } });
         current = { ...current, card: data.card };
+        lastVisits = data.card.lifetimeVisits;
         fillCustomer(current);
         loadHistory();
+        confetti({ big: data.result.kind === 'free_coffee' });
         if (data.result.kind === 'free_coffee') {
           showVoucher(current.user.name, data.card.voucher);
         } else {
@@ -385,6 +462,17 @@
       try {
         current = await api('/api/me');
         fillCustomer(current);
+        // Stamped by a barista, or stamps added by the owner, while the app
+        // was open: celebrate on the customer's screen too.
+        if (current.card.lifetimeVisits > lastVisits) {
+          const big = current.card.voucher && current.card.voucher.redeemedAt > Date.now() - 60000;
+          const added = current.card.lifetimeVisits - lastVisits;
+          confetti({ big });
+          toast(big ? '☕ Free coffee redeemed — enjoy!'
+            : added > 1 ? `🎉 ${added} new stamps on your card!` : '🎉 New stamp on your card!', 'ok');
+          loadHistory();
+        }
+        lastVisits = current.card.lifetimeVisits;
       } catch (err) { if (err.status === 401) route(); }
     };
     document.removeEventListener('visibilitychange', window.__ehcRefresh || (() => {}));
