@@ -3,7 +3,7 @@
 // Caches the app shell so the installed app opens instantly (and offline).
 // API calls always go to the network — loyalty data is never cached here.
 
-const CACHE = 'ehc-shell-v1';
+const CACHE = 'ehc-shell-v2';
 const SHELL = [
   '/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest',
   '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png',

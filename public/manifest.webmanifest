@@ -1,7 +1,7 @@
 {
   "name": "Engine House Coffee Rewards",
   "short_name": "Engine House",
-  "description": "Collect stamps with every coffee. Your 8th coffee is free.",
+  "description": "Collect a stamp each day you visit. Your 8th coffee is free.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

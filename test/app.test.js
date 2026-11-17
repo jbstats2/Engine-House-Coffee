@@ -1,10 +1,13 @@
 'use strict';
 
+process.env.SHOP_TIMEZONE = 'America/Chicago';
+
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { openDb } = require('../server/db');
 const { createApp } = require('../server/app');
 const sec = require('../server/security');
+const { recordVisit, cardSummary, shopDay } = require('../server/loyalty');
 
 let server;
 let base;
@@ -100,11 +103,11 @@ test('customers cannot award themselves stamps', async () => {
   const c = client();
   await c('/api/auth/login', { method: 'POST', body: { email: 'ada@example.com', password: 'espresso12345' } });
   const me = await c('/api/me');
-  const r = await c(`/api/staff/members/${me.data.user.memberCode}/coffees`, { method: 'POST', body: { count: 7 } });
+  const r = await c(`/api/staff/members/${me.data.user.memberCode}/visit`, { method: 'POST', body: {} });
   assert.equal(r.status, 403);
 });
 
-test('stamp card: 7 paid coffees, the 8th is free, lifetime totals keep counting', async () => {
+test('API: one stamp per day — a second stamp the same day is refused', async () => {
   const customer = client();
   await customer('/api/auth/register', { method: 'POST', body: { name: 'Grace', email: 'grace@example.com', password: 'latteArt2024' } });
   const code = (await customer('/api/me')).data.user.memberCode;
@@ -117,40 +120,70 @@ test('stamp card: 7 paid coffees, the 8th is free, lifetime totals keep counting
   const look = await staff(`/api/staff/members/${code.toLowerCase().replace('-', '')}`);
   assert.equal(look.status, 200);
   assert.equal(look.data.member.name, 'Grace');
+  assert.equal(look.data.card.stampedToday, false);
 
-  let r;
-  for (let i = 1; i <= 7; i++) {
-    r = await staff(`/api/staff/members/${code}/coffees`, { method: 'POST', body: { count: 1 } });
-    assert.equal(r.status, 200);
-    assert.equal(r.data.card.currentStamps, i);
-  }
-  assert.equal(r.data.card.nextIsFree, true);
+  const first = await staff(`/api/staff/members/${code}/visit`, { method: 'POST', body: {} });
+  assert.equal(first.status, 200);
+  assert.deepEqual(first.data.result, { kind: 'stamp', currentStamps: 1 });
+  assert.equal(first.data.card.stampedToday, true);
 
-  // 8th coffee: free, card resets.
-  r = await staff(`/api/staff/members/${code}/coffees`, { method: 'POST', body: { count: 1 } });
-  assert.deepEqual(r.data.result, { stampsAdded: 0, freeCoffees: 1, currentStamps: 0 });
-  assert.equal(r.data.card.lifetimePoints, 7);
-  assert.equal(r.data.card.lifetimeCoffees, 8);
-  assert.equal(r.data.card.freeRedeemed, 1);
+  const second = await staff(`/api/staff/members/${code}/visit`, { method: 'POST', body: {} });
+  assert.equal(second.status, 409);
+  assert.match(second.data.error, /Already stamped today/);
 
-  // A big group order spanning a free coffee: 10 coffees = 7 paid + 1 free + 2 paid.
-  r = await staff(`/api/staff/members/${code}/coffees`, { method: 'POST', body: { count: 10 } });
-  assert.deepEqual(r.data.result, { stampsAdded: 9, freeCoffees: 1, currentStamps: 2 });
-  assert.equal(r.data.card.lifetimePoints, 16);
-  assert.equal(r.data.card.lifetimeCoffees, 18);
-  assert.equal(r.data.card.freeRedeemed, 2);
+  const me = await customer('/api/me');
+  assert.equal(me.data.card.currentStamps, 1);
+  assert.equal(me.data.card.lifetimePoints, 1);
+  assert.equal(me.data.card.stampedToday, true);
 
-  const bad = await staff(`/api/staff/members/${code}/coffees`, { method: 'POST', body: { count: 0 } });
-  assert.equal(bad.status, 400);
-
-  // Customer sees history and can download it.
-  const hist = await customer('/api/me/history');
-  assert.equal(hist.data.history.length, 18);
   const csv = await customer('/api/me/history.csv');
   assert.equal(csv.status, 200);
   assert.match(csv.headers.get('content-disposition'), /attachment/);
-  assert.match(csv.data, /Lifetime points,16/);
-  assert.match(csv.data, /Free coffee redeemed/);
+  assert.match(csv.data, /Lifetime points,1/);
+  assert.match(csv.data, /Lifetime visits,1/);
+});
+
+test('stamp card over 9 days: 7 stamped days, 8th visit free, then a new card', () => {
+  const now = Date.now();
+  const { lastInsertRowid } = db.prepare(`INSERT INTO users (email, name, password_hash, member_code, created_at)
+    VALUES ('days@example.com', 'Days', 'x', 'DAYS-2222', ?)`).run(now);
+  const userId = Number(lastInsertRowid);
+  const DAY = 24 * 60 * 60 * 1000;
+  const start = Date.UTC(2026, 0, 5, 15); // 9am Chicago
+  const user = () => db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+
+  for (let d = 0; d < 7; d++) {
+    const r = recordVisit(db, { userId, staffId: null, now: start + d * DAY });
+    assert.deepEqual(r, { kind: 'stamp', currentStamps: d + 1 });
+    // Ordering a second drink later the same day doesn't add another stamp.
+    assert.throws(() => recordVisit(db, { userId, staffId: null, now: start + d * DAY + 3 * 60 * 60 * 1000 }), /Already stamped today/);
+  }
+  assert.equal(cardSummary(db, user(), start + 7 * DAY).nextIsFree, true);
+
+  // Day 8: the coffee is free and the card starts over.
+  assert.deepEqual(recordVisit(db, { userId, staffId: null, now: start + 7 * DAY }), { kind: 'free_coffee', currentStamps: 0 });
+  // The same day as the free coffee, no stamp either.
+  assert.throws(() => recordVisit(db, { userId, staffId: null, now: start + 7 * DAY + 60 * 1000 }), /Already stamped today/);
+  // Day 9: first stamp on the new card.
+  assert.deepEqual(recordVisit(db, { userId, staffId: null, now: start + 8 * DAY }), { kind: 'stamp', currentStamps: 1 });
+
+  const card = cardSummary(db, user(), start + 8 * DAY);
+  assert.equal(card.lifetimePoints, 8);
+  assert.equal(card.lifetimeVisits, 9);
+  assert.equal(card.freeRedeemed, 1);
+});
+
+test('days roll over at midnight in the shop time zone, not UTC', () => {
+  // 11:30pm and 12:30am Chicago time — different days for the shop,
+  // even though both are the same UTC date.
+  assert.equal(shopDay(Date.UTC(2026, 10, 17, 5, 30)), '2026-11-16');
+  assert.equal(shopDay(Date.UTC(2026, 10, 17, 6, 30)), '2026-11-17');
+});
+
+test('the database refuses a second stamp on the same day even if app checks are skipped', () => {
+  const u = db.prepare("SELECT id FROM users WHERE email = 'days@example.com'").get();
+  const day = db.prepare('SELECT day FROM transactions WHERE user_id = ? LIMIT 1').get(u.id).day;
+  assert.throws(() => db.prepare("INSERT INTO transactions (user_id, kind, day, created_at) VALUES (?, 'stamp', ?, 0)").run(u.id, day), /UNIQUE/);
 });
 
 test('logout invalidates the session server-side', async () => {

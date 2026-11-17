@@ -8,7 +8,7 @@ const QRCode = require('qrcode');
 
 const config = require('./config');
 const sec = require('./security');
-const { recordCoffees, cardSummary } = require('./loyalty');
+const { recordVisit, cardSummary } = require('./loyalty');
 
 function parseCookies(header) {
   const out = {};
@@ -188,7 +188,7 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
 
   app.get('/api/me', requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ user: publicUser(req.user), card: cardSummary(req.user) });
+    res.json({ user: publicUser(req.user), card: cardSummary(db, req.user) });
   });
 
   app.get('/api/me/qr.svg', requireUser, async (req, res, next) => {
@@ -217,7 +217,7 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
       ['Member code', u.member_code],
       ['Current stamps', `${u.current_stamps} / ${config.CARD_SIZE}`],
       ['Lifetime points', u.lifetime_points],
-      ['Lifetime coffees', u.lifetime_coffees],
+      ['Lifetime visits', u.lifetime_coffees],
       ['Free coffees redeemed', u.free_redeemed],
       [],
       ['Date (UTC)', 'Activity'],
@@ -248,18 +248,14 @@ function createApp({ db, secureCookies = process.env.NODE_ENV === 'production', 
   app.get('/api/staff/members/:code', requireStaff, (req, res) => {
     const m = findMember(req.params.code);
     res.set('Cache-Control', 'no-store');
-    res.json({ member: { name: m.name, memberCode: m.member_code }, card: cardSummary(m) });
+    res.json({ member: { name: m.name, memberCode: m.member_code }, card: cardSummary(db, m) });
   });
 
-  app.post('/api/staff/members/:code/coffees', requireStaff, (req, res) => {
+  app.post('/api/staff/members/:code/visit', requireStaff, (req, res) => {
     const m = findMember(req.params.code);
-    const count = Number(req.body?.count ?? 1);
-    if (!Number.isInteger(count) || count < 1 || count > config.MAX_COFFEES_PER_VISIT) {
-      throw httpError(400, `Enter between 1 and ${config.MAX_COFFEES_PER_VISIT} coffees.`);
-    }
-    const result = recordCoffees(db, { userId: m.id, staffId: req.user.id, count });
+    const result = recordVisit(db, { userId: m.id, staffId: req.user.id });
     const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(m.id);
-    res.json({ result, member: { name: updated.name, memberCode: updated.member_code }, card: cardSummary(updated) });
+    res.json({ result, member: { name: updated.name, memberCode: updated.member_code }, card: cardSummary(db, updated) });
   });
 
   // ---- Static PWA ---------------------------------------------------------

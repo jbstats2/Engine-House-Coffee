@@ -48,7 +48,7 @@
     const btn = form.querySelector('button[type="submit"]');
     btn.disabled = true;
     showError(form, null);
-    try { await fn(); } catch (err) { showError(form, err); } finally { btn.disabled = false; }
+    try { await fn(); } catch (err) { showError(form, err); } finally { btn.disabled = !!btn.dataset.done; }
   }
 
   const fmtDate = (ms) => new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
@@ -83,10 +83,19 @@
     }
   }
 
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
   function statusText(card) {
-    if (card.nextIsFree) return '🎉 Your next coffee is FREE!';
-    const n = card.coffeesUntilFree;
-    return `${n} more coffee${n === 1 ? '' : 's'} until a free one.`;
+    if (card.nextIsFree) {
+      return card.stampedToday
+        ? '🎉 Card full! Your free coffee is ready on your next visit.'
+        : '🎉 Your coffee today is FREE!';
+    }
+    if (card.stampedToday && card.currentStamps === 0) {
+      return '☕ Enjoy your free coffee! Your new card starts on your next visit.';
+    }
+    const left = `${plural(card.visitsUntilFree, 'more visit')} until a free coffee.`;
+    return card.stampedToday ? `✅ Today's stamp collected — ${left}` : left;
   }
 
   // ---------- auth view ----------
@@ -157,12 +166,12 @@
 
     // Refresh the card when the app comes back to the foreground — e.g. right
     // after the barista stamps it.
-    let lastStamps = me.card.currentStamps + me.card.lifetimeCoffees * 1000;
+    let lastStamps = me.card.currentStamps + me.card.lifetimeVisits * 1000;
     const refresh = async () => {
       if (document.visibilityState !== 'visible' || !bind('stamps')) return;
       try {
         const fresh = await api('/api/me');
-        const key = fresh.card.currentStamps + fresh.card.lifetimeCoffees * 1000;
+        const key = fresh.card.currentStamps + fresh.card.lifetimeVisits * 1000;
         if (key !== lastStamps) {
           lastStamps = key;
           fillCustomer(fresh);
@@ -184,7 +193,7 @@
     bind('progress').textContent = `${card.currentStamps} / ${card.cardSize - 1} stamps`;
     renderStamps(bind('stamps'), card);
     bind('lifetimePoints').textContent = card.lifetimePoints.toLocaleString();
-    bind('lifetimeCoffees').textContent = card.lifetimeCoffees.toLocaleString();
+    bind('lifetimeVisits').textContent = card.lifetimeVisits.toLocaleString();
     bind('freeRedeemed').textContent = card.freeRedeemed.toLocaleString();
   }
 
@@ -231,12 +240,26 @@
       bind('memberName').textContent = data.member.name;
       bind('memberCode').textContent = data.member.memberCode;
       renderStamps(bind('stamps'), data.card);
+      const { card } = data;
       const s = bind('status');
-      s.textContent = data.card.nextIsFree
-        ? '🎉 This coffee is FREE — card is full!'
-        : `${data.card.currentStamps} stamp${data.card.currentStamps === 1 ? '' : 's'} · ${data.card.coffeesUntilFree} until free · ${data.card.lifetimePoints} lifetime pts`;
-      s.classList.toggle('free', data.card.nextIsFree);
-      stampForm.count.value = 1;
+      const btn = stampForm.querySelector('button[type="submit"]');
+      if (card.stampedToday) {
+        s.textContent = card.nextIsFree
+          ? '✅ Stamped today. Card is full — free coffee on their next visit.'
+          : card.currentStamps === 0
+            ? '☕ Free coffee redeemed today · new card starts next visit'
+            : `✅ Already stamped today · ${plural(card.currentStamps, 'stamp')} · ${card.visitsUntilFree} visits until free`;
+        btn.textContent = 'Already stamped today';
+      } else if (card.nextIsFree) {
+        s.textContent = "🎉 Card is full — today's coffee is FREE!";
+        btn.textContent = 'Redeem FREE coffee';
+      } else {
+        s.textContent = `${plural(card.currentStamps, 'stamp')} · ${card.visitsUntilFree} visits until free · ${card.lifetimePoints} lifetime pts`;
+        btn.textContent = "Add today's stamp";
+      }
+      s.classList.toggle('free', card.nextIsFree && !card.stampedToday);
+      btn.dataset.done = card.stampedToday ? '1' : '';
+      btn.disabled = card.stampedToday;
     }
 
     async function lookup(code) {
@@ -253,6 +276,7 @@
     lookupForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const code = lookupForm.code.value.trim();
+      showError(stampForm, null);
       if (code) lookup(code);
     });
 
@@ -260,15 +284,17 @@
       e.preventDefault();
       if (!currentCode) return;
       withBusy(stampForm, async () => {
-        const data = await api(`/api/staff/members/${encodeURIComponent(currentCode)}/coffees`, {
-          method: 'POST', body: { count: Number(stampForm.count.value) },
-        });
-        showMember(data);
-        const { stampsAdded, freeCoffees } = data.result;
-        const parts = [];
-        if (stampsAdded) parts.push(`${stampsAdded} stamp${stampsAdded === 1 ? '' : 's'} added`);
-        if (freeCoffees) parts.push(`${freeCoffees} FREE coffee${freeCoffees === 1 ? '' : 's'} — don't charge!`);
-        toast(parts.join(' · '), 'ok');
+        try {
+          const data = await api(`/api/staff/members/${encodeURIComponent(currentCode)}/visit`, { method: 'POST', body: {} });
+          showMember(data);
+          toast(data.result.kind === 'free_coffee'
+            ? "FREE coffee redeemed — don't charge for one drink!"
+            : "Today's stamp added", 'ok');
+        } catch (err) {
+          // e.g. another barista stamped them a moment ago — show the latest card.
+          if (err.status === 409) lookup(currentCode);
+          throw err;
+        }
       });
     });
 

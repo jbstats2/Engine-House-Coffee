@@ -39,10 +39,18 @@ function openDb(file) {
       user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       staff_id    INTEGER REFERENCES users(id),
       kind        TEXT NOT NULL CHECK (kind IN ('stamp','free_coffee')),
+      day         TEXT,
       created_at  INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_tx_user ON transactions(user_id, created_at);
   `);
+
+  // Upgrade databases created before the one-stamp-per-day rule.
+  const cols = db.prepare('PRAGMA table_info(transactions)').all().map((c) => c.name);
+  if (!cols.includes('day')) db.exec('ALTER TABLE transactions ADD COLUMN day TEXT');
+  // One card action per customer per day. Older per-cup rows have day = NULL,
+  // which UNIQUE ignores.
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_user_day ON transactions(user_id, day)');
   return db;
 }
 
